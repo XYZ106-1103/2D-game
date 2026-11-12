@@ -36,6 +36,10 @@ export class HudScene extends Phaser.Scene {
   private clear: Phaser.GameObjects.Container | null = null;
   private elapsed = 0;
   private stageCard!: Phaser.GameObjects.Container;
+  private comboNum!: Phaser.GameObjects.BitmapText;
+  private comboLbl!: Phaser.GameObjects.BitmapText;
+  private comboT = 0;
+  private comboPop = 0;
   private cardT = 0;
 
   constructor() {
@@ -98,6 +102,9 @@ export class HudScene extends Phaser.Scene {
     this.stageCard.add([line, t1, t2]);
     this.cardT = 0;
 
+    this.comboNum = text(this, 0, 78, '', 'galmuri11b', COLORS.cyan).setVisible(false);
+    this.comboLbl = text(this, 0, 94, 'HIT', 'galmuri7', COLORS.uiText).setVisible(false);
+
     this.input.keyboard!.on('keydown-SPACE', () => this.onConfirm());
     this.input.keyboard!.on('keydown-ENTER', () => this.onConfirm());
   }
@@ -140,6 +147,17 @@ export class HudScene extends Phaser.Scene {
     this.dlgHold = 2.2 + line.text.length * 0.03;
   }
 
+  combo(n: number): void {
+    this.comboT = 1.6;
+    this.comboPop = 0.12;
+    if (n < 2) return;
+    this.comboNum.setText(`${n}`).setVisible(true);
+    this.comboNum.x = GAME_W - 12 - this.comboNum.width;
+    this.comboLbl.setVisible(true);
+    this.comboLbl.x = GAME_W - 12 - this.comboLbl.width;
+    this.comboNum.setTint(n >= 10 ? COLORS.magenta : n >= 5 ? COLORS.amberHot : COLORS.cyan);
+  }
+
   toast(title: string, sub: string): void {
     this.toastTitle.setText(title);
     this.toastSub.setText(sub);
@@ -177,12 +195,12 @@ export class HudScene extends Phaser.Scene {
     this.lost.setVisible(v);
   }
 
-  showClear(stats: { time: number; deaths: number; logs: string[] }): void {
+  showClear(stats: { time: number; deaths: number; logs: string[]; kills?: number; bestCombo?: number }): void {
     this.dlgQueue = [];
     this.dlgOpen = false;
     this.dlgBox.setVisible(false);
     const w = 240;
-    const h = 112;
+    const h = 138;
     const x = Math.round((GAME_W - w) / 2);
     const y = 70;
     const c = this.add.container(0, 0);
@@ -196,6 +214,8 @@ export class HudScene extends Phaser.Scene {
     const rows: [string, string][] = [
       [UI_TEXT.time, fmtTime(stats.time)],
       [UI_TEXT.deaths, `${stats.deaths}`],
+      [UI_TEXT.kills, `${stats.kills ?? 0}`],
+      [UI_TEXT.bestCombo, `${stats.bestCombo ?? 0}`],
       [UI_TEXT.logs, `${stats.logs.length} / ${Object.keys(LOGS).length}`],
     ];
     rows.forEach(([k, v], i) => {
@@ -228,6 +248,21 @@ export class HudScene extends Phaser.Scene {
     });
     this.logCount.setText(`${g.stats.logs.length}/${Object.keys(LOGS).length}`);
     this.timer.setText(fmtTime(g.stats.time));
+
+    // combo counter
+    if (this.comboT > 0) {
+      this.comboT -= dt;
+      this.comboPop -= dt;
+      const pop = this.comboPop > 0 ? -2 : 0;
+      this.comboNum.y = 78 + pop;
+      const a = Math.min(1, this.comboT * 2.5);
+      this.comboNum.setAlpha(a);
+      this.comboLbl.setAlpha(a);
+      if (this.comboT <= 0) {
+        this.comboNum.setVisible(false);
+        this.comboLbl.setVisible(false);
+      }
+    }
 
     // stage card
     this.cardT += dt;

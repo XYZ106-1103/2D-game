@@ -314,6 +314,65 @@ export class AudioEngine {
         this.noiseBurst(t, 2.8, 0.5 * v, 'lowpass', 420, 60, 0.6, dest, 0.12);
         this.noiseBurst(t + 0.1, 2.2, 0.25 * v, 'lowpass', 900, 100, 0.6, verb, 0.05);
         break;
+      // --- combat -------------------------------------------------------------
+      case 'hit':
+        this.noiseBurst(t, 0.07, 0.55 * v, 'bandpass', 2600 * p, 900, 1.1, dest);
+        this.tone('square', 190 * p, 70, t, 0.09, 0.16 * v, dest);
+        this.tone('sine', 1400 * p, 1200 * p, t + 0.01, 0.12, 0.05 * v, verb);
+        break;
+      case 'zipstrike':
+        this.noiseBurst(t, 0.12, 0.7 * v, 'bandpass', 3400, 700, 1.0, dest);
+        this.tone('sawtooth', 240, 50, t, 0.18, 0.2 * v, dest);
+        this.tone('sine', 90, 35, t, 0.22, 0.45 * v, dest);
+        this.tone('triangle', 2200, 1800, t + 0.02, 0.25, 0.06 * v, verb);
+        break;
+      case 'kill':
+        this.noiseBurst(t, 0.09, 0.6 * v, 'bandpass', 3000, 800, 1, dest);
+        this.tone('square', 260, 60, t, 0.14, 0.16 * v, dest);
+        this.tone('sine', 1800, 2400, t + 0.03, 0.18, 0.05 * v, verb);
+        break;
+      case 'explode':
+        this.noiseBurst(t, 0.6, 0.6 * v, 'lowpass', 2600, 90, 0.7, dest, 0.005);
+        this.tone('sine', 110, 30, t, 0.45, 0.5 * v, dest);
+        this.noiseBurst(t + 0.03, 0.9, 0.2 * v, 'lowpass', 900, 80, 0.6, verb, 0.02);
+        break;
+      case 'block':
+        this.tone('square', 1200, 1150, t, 0.06, 0.08 * v, dest);
+        this.tone('triangle', 2400, 2300, t, 0.18, 0.08 * v, verb);
+        this.noiseBurst(t, 0.05, 0.45 * v, 'highpass', 3500, 3500, 0.8, dest);
+        break;
+      case 'deflect':
+        this.tone('sawtooth', 600, 1800, t, 0.12, 0.1 * v, dest);
+        this.tone('sine', 2600, 2600, t + 0.02, 0.2, 0.06 * v, verb);
+        break;
+      case 'zip':
+        this.tone('sawtooth', 300, 1300, t, 0.16, 0.08 * v, dest);
+        this.noiseBurst(t, 0.18, 0.35 * v, 'bandpass', 900, 4200, 1.4, dest, 0.01);
+        break;
+      case 'charge':
+        this.tone('sawtooth', 200 * p, 900 * p, t, 0.45, 0.06 * v, dest, 0.02);
+        this.tone('square', 400 * p, 1800 * p, t, 0.45, 0.025 * v, dest, 0.02);
+        break;
+      case 'drone_dash':
+        this.noiseBurst(t, 0.3, 0.35 * v, 'bandpass', 1200, 300, 1.5, dest);
+        this.tone('sawtooth', 700, 200, t, 0.3, 0.06 * v, dest);
+        break;
+      case 'lock':
+        this.tone('square', 1760 * p, 1760 * p, t, 0.05, 0.04 * v, dest);
+        this.tone('square', 1760 * p, 1760 * p, t + 0.08, 0.05, 0.04 * v, dest);
+        break;
+      case 'shoot':
+        this.tone('square', 900, 200, t, 0.1, 0.07 * v, dest);
+        this.noiseBurst(t, 0.06, 0.25 * v, 'bandpass', 3000, 1500, 1.2, dest);
+        break;
+      case 'alert':
+        this.tone('square', 700, 700, t, 0.06, 0.05 * v, dest);
+        this.tone('square', 1050, 1050, t + 0.07, 0.08, 0.05 * v, dest);
+        break;
+      case 'bash':
+        this.noiseBurst(t, 0.14, 0.4 * v, 'bandpass', 600, 2400, 1.2, dest, 0.01);
+        this.tone('sine', 130, 60, t + 0.05, 0.12, 0.3 * v, dest);
+        break;
       case 'boot':
         this.tone('sine', 110, 880, t, 0.6, 0.08 * v, verb, 0.05);
         this.noiseBurst(t, 0.5, 0.06 * v, 'bandpass', 600, 4000, 3, dest, 0.2);

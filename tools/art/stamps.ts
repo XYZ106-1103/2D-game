@@ -176,3 +176,107 @@ export const TORSO_JOINTS = {
   hipB: [-1.4, 1.6] as [number, number],
   coat: [-3.2, 0.6] as [number, number],
 };
+
+// ---------------------------------------------------------------------------
+// LETHE security trooper (enemy). White armour, magenta corporate accents,
+// red visor slit. Same rig, same light, same outline rules as ION.
+// ---------------------------------------------------------------------------
+
+export const TROOPER_PAL: Record<string, number> = {
+  A: R.night[10],
+  a: R.night[9],
+  b: R.night[8],
+  c: R.night[7],
+  d: R.night[6],
+  e: R.night[5],
+  v: R.night[2],
+  V: R.night[4],
+  r: R.crimson[5],
+  R: R.crimson[6],
+  m: R.magenta[4],
+  M: R.magenta[5],
+  n: R.magenta[3],
+  u: R.pants[3],
+  U: R.pants[2],
+  x: R.steel[1],
+};
+
+function t(rows: string[], pivot: [number, number]): Stamp {
+  return stampFromRows(rows, TROOPER_PAL, pivot);
+}
+
+export const TROOPER_HEAD = {
+  normal: t(
+    [
+      '...bbbb...',
+      '..baaaab..',
+      '.baAAaaab.',
+      'cbaAAaaabb',
+      'cbaavvvvVb',
+      'cbbavrrRRV',
+      'dcbavvvvvc',
+      '.dcbbbbbcd',
+      '..dccccd..',
+    ],
+    [4.5, 9],
+  ),
+  alert: t(
+    [
+      '...bbbb...',
+      '..baaaab..',
+      '.baAAaaab.',
+      'cbaAAaaabb',
+      'cbaavvvvVb',
+      'cbbavRRRRR',
+      'dcbavvvvvc',
+      '.dcbbbbbcd',
+      '..dccccd..',
+    ],
+    [4.5, 9],
+  ),
+  hurt: t(
+    [
+      '...bbbb...',
+      '..baaaab..',
+      '.baAAaaab.',
+      'cbaAAaaabb',
+      'cbaavvvvVb',
+      'cbbavVvVVV',
+      'dcbavvvvvc',
+      '.dcbbbbbcd',
+      '..dccccd..',
+    ],
+    [4.5, 9],
+  ),
+};
+
+export const TROOPER_TORSO = {
+  normal: t(
+    [
+      '...ccbbc...',
+      '..cbbaabc..',
+      '.cbaAAaabc.',
+      'cbaAAaaabbc',
+      'cbaaaammabc',
+      'dcbaaannabc',
+      '.dcbaaaabcd',
+      '.ddcbbbbcd.',
+      '..dccccdd..',
+      '..xxxxxxmx.',
+      '..uuuuuuuu.',
+      '..uUuuuuUu.',
+      '...UUUUUU..',
+    ],
+    [5.5, 9.5],
+  ),
+};
+
+export const TROOPER_JOINTS = {
+  shoulderF: [1.4, -5.6] as [number, number],
+  shoulderB: [-1.9, -5.6] as [number, number],
+  neck: [-0.4, -8.4] as [number, number],
+  scarf: [-1.6, -8.0] as [number, number],
+  hipF: [0.8, 1.8] as [number, number],
+  hipB: [-1.4, 1.8] as [number, number],
+  coat: [-3.2, 0.6] as [number, number],
+};

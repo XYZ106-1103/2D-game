@@ -8,6 +8,7 @@ import { Scarf } from './Scarf.ts';
 import type { Particles } from '../fx/Particles.ts';
 import type { Juice } from '../fx/Juice.ts';
 import { COLORS } from '../art/palette.ts';
+import type { HitKind, HitResult } from './enemies/Enemy.ts';
 
 export interface PlayerSheet {
   frameWidth: number;
@@ -78,6 +79,12 @@ export class Player {
 
   aimX = 0;
   aimY = 0;
+  /** Increments per attack swing so each swing hits a target once. */
+  attackId = 0;
+  /** Set by the combat system: resolve a zip strike on arrival. */
+  onZipStrike: ((target: AnchorPoint) => void) | null = null;
+  private zipT = 0;
+  private zipBlocked = 0;
 
   constructor(scene: Phaser.Scene, world: TileWorld, x: number, y: number, fx: Particles, juice: Juice) {
     this.world = world;
@@ -106,6 +113,15 @@ export class Player {
         this.fx.ring(ax, ay, anchor ? COLORS.cyanHot : COLORS.cyan);
         const ang = anchor ? -90 : Math.atan2(ny, nx) * DEG;
         this.fx.sparks(ax, ay, ang, anchor ? 360 : 120, anchor ? 10 : 12);
+      },
+      onHookEnemy: () => {
+        this.zipT = 0;
+        this.zipBlocked = 0;
+        this.airDashes = 1;
+        this.dashT = 0;
+        this.juice.sfx('zip');
+        this.juice.shake(1.2, 0.06);
+        this.juice.aberration(0.5);
       },
       onFail: (fx, fy, glass) => {
         this.juice.sfx(glass ? 'clink' : 'miss');
@@ -249,16 +265,17 @@ export class Player {
       this.juice.sfx('fire');
       this.fx.sparks(hx, hy, Math.atan2(this.aimY - hy, this.aimX - hx) * DEG, 40, 5);
     }
-    if (this.grapple.busy && !grappleHeld) this.releaseRope(false);
+    if ((this.grapple.attached || this.grapple.state === 'flying') && !grappleHeld) this.releaseRope(false);
 
     // --- dash ------------------------------------------------------------------------
     if (wantDash && this.dashCd <= 0 && (b.onGround || this.airDashes > 0)) this.startDash(input);
 
     // --- attack -----------------------------------------------------------------------
-    if (wantAttack && this.attackT <= 0.08 && this.dashT <= 0) this.startAttack();
+    if (wantAttack && this.attackT <= 0.08 && this.dashT <= 0 && this.grapple.state !== 'zip') this.startAttack();
 
     // --- movement -------------------------------------------------------------------
-    if (this.dashT > 0) this.dashStep(dt);
+    if (this.grapple.state === 'zip') this.zipStep(dt);
+    else if (this.dashT > 0) this.dashStep(dt);
     else if (this.grapple.attached) this.swingStep(dt, input, mx);
     else this.normalStep(dt, input, mx);
 
@@ -472,6 +489,80 @@ export class Player {
     rope.updateWrapping(prevX, prevY, b.x, b.y);
   }
 
+  /** Grapple zip: reel the body into a hooked enemy and strike on arrival. */
+  private zipStep(dt: number): void {
+    const b = this.body;
+    const t = this.grapple.zipTarget;
+    this.zipT += dt;
+    const cancel = () => {
+      this.grapple.release();
+      b.vx *= 0.4;
+      b.vy *= 0.4;
+    };
+    if (!t || t.alive === false) return cancel();
+    const dx = t.x - b.x;
+    const dy = t.y - b.y;
+    const d = Math.hypot(dx, dy) || 0.001;
+    if (d < 16) {
+      this.grapple.release(true);
+      this.attackId++;
+      this.facing = dx >= 0 ? 1 : -1;
+      this.onZipStrike?.(t);
+      this.attackKind = 'attack1';
+      this.attackT = 0.2;
+      this.setAnim('attack1', true);
+      this.slashKind = 'attack1';
+      this.slashT = 0;
+      this.juice.sfx('slash', { pitch: 0.85 });
+      b.vx = -(dx / d) * 150;
+      b.vy = -270;
+      this.airDashes = 1;
+      this.flipT = 0.32;
+      return;
+    }
+    const sp = 580;
+    b.vx = (dx / d) * sp;
+    b.vy = (dy / d) * sp;
+    this.facing = dx >= 0 ? 1 : -1;
+    this.dashIdx = nearestIndex([-90, -45, 0, 45, 90], Math.atan2(dy, Math.abs(dx)) * DEG);
+    this.integrate(dt);
+    if (b.hitWallX !== 0 || b.hitCeil) this.zipBlocked += dt;
+    if (this.zipBlocked > 0.08 || this.zipT > 0.7) cancel();
+  }
+
+  /** Active attack hitbox in world space (only during the swing's live frames). */
+  attackHitbox(): { x: number; y: number; w: number; h: number; id: number; kind: HitKind } | null {
+    if (this.attackT <= 0 || !this.attackKind || this.dead) return null;
+    const el = PLAYER.attackTime - this.attackT;
+    if (el < 0.035 || el > 0.2) return null;
+    const b = this.body;
+    const f = this.facing;
+    switch (this.attackKind) {
+      case 'attack1':
+        return { x: f > 0 ? b.x - 2 : b.x - 30, y: b.y - 20, w: 32, h: 28, id: this.attackId, kind: 'slash' };
+      case 'attack2':
+        return { x: f > 0 ? b.x - 4 : b.x - 26, y: b.y - 36, w: 30, h: 38, id: this.attackId, kind: 'slash' };
+      default:
+        return { x: b.x - 25, y: b.y - 25, w: 50, h: 46, id: this.attackId, kind: 'air' };
+    }
+  }
+
+  /** Reaction to our own hit landing (pogo, recoil, dash refresh). */
+  onAttackLanded(r: HitResult, dirX: number, kind: HitKind): void {
+    const b = this.body;
+    if (r === 'block') {
+      b.vx = -dirX * 180;
+      if (!b.onGround) b.vy = Math.min(b.vy, -90);
+      return;
+    }
+    if (r === 'none') return;
+    if (kind === 'air' || (!b.onGround && kind === 'slash')) {
+      b.vy = Math.min(b.vy, -175);
+      this.airDashes = 1;
+    }
+    if (r === 'kill') this.airDashes = 1;
+  }
+
   releaseRope(jump: boolean): void {
     if (!this.grapple.busy) return;
     const wasAttached = this.grapple.attached;
@@ -550,6 +641,7 @@ export class Player {
       b.vx += this.facing * 70;
     }
     this.attackKind = kind;
+    this.attackId++;
     this.attackT = PLAYER.attackTime;
     this.comboT = PLAYER.attackTime + PLAYER.comboWindow;
     this.setAnim(kind, true);
@@ -560,6 +652,8 @@ export class Player {
 
   hurt(dmg: number, fromX: number, hazard = false): void {
     if (this.invulnT > 0 || this.dead) return;
+    // dash i-frames against enemies (not against the environment)
+    if (!hazard && (this.dashT > 0 || this.grapple.state === 'zip')) return;
     const b = this.body;
     this.hp -= dmg;
     this.invulnT = PLAYER.invuln;
@@ -611,7 +705,7 @@ export class Player {
     const b = this.body;
     if (this.dead) return this.setAnim('death');
     if (this.hurtT > 0) return this.setAnim('hit');
-    if (this.dashT > 0) return this.setAnim(`dash_${this.dashIdx}`);
+    if (this.dashT > 0 || this.grapple.state === 'zip') return this.setAnim(`dash_${this.dashIdx}`);
     if (this.attackT > 0 && this.attackKind) return this.setAnim(this.attackKind);
     if (this.grapple.attached && !b.onGround) {
       const piv = this.grapple.rope.active;
@@ -668,7 +762,7 @@ export class Player {
     this.scarf.draw(this.sprite.visible, this.sprite.alpha);
 
     // afterimages at speed
-    const fast = this.dashT > 0 || (this.speed > 300 && !b.onGround) || this.flipT > 0;
+    const fast = this.dashT > 0 || this.grapple.state === 'zip' || (this.speed > 300 && !b.onGround) || this.flipT > 0;
     this.trailT -= dt;
     if (fast && this.trailT <= 0 && this.sprite.visible) {
       this.trailT = this.dashT > 0 ? 0.022 : 0.04;

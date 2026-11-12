@@ -16,6 +16,7 @@ import { Parallax } from '../world/Parallax.ts';
 import { Weather } from '../world/Weather.ts';
 import { buildLevel1 } from '../world/levels/level1.ts';
 import type { HudScene } from './HudScene.ts';
+import { Combat } from '../combat/Combat.ts';
 
 interface AnchorObj extends AnchorPoint {
   sprite: Phaser.GameObjects.Image;
@@ -90,7 +91,9 @@ export class GameScene extends Phaser.Scene implements Juice {
   state: 'play' | 'dead' | 'clear' = 'play';
   private deadT = 0;
   private respawning = false;
-  stats = { time: 0, deaths: 0, logs: [] as string[] };
+  stats = { time: 0, deaths: 0, logs: [] as string[], kills: 0, bestCombo: 0 };
+  combat!: Combat;
+  private hookTargets: AnchorPoint[] = [];
   private hud!: HudScene;
   private dev = false;
   private exitT = 0;
@@ -116,7 +119,7 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.deadT = 0;
     this.respawning = false;
     this.exitT = 0;
-    this.stats = { time: 0, deaths: 0, logs: [] };
+    this.stats = { time: 0, deaths: 0, logs: [], kills: 0, bestCombo: 0 };
     this.registry.set('continue', !!data.continue);
   }
 
@@ -150,6 +153,8 @@ export class GameScene extends Phaser.Scene implements Juice {
       this.firedTriggers.add('intro').add('move');
     }
     this.player = new Player(this, world, spawn.x, spawn.y, this.particles, this);
+    this.combat = new Combat(this, world, this.player, this.particles, this, data.enemies);
+    this.combat.onCombo = (n) => this.hud?.combo(n);
 
     this.cam = new CameraDirector(cam, world.pixelWidth, world.pixelHeight);
     this.cam.snap(this.player.x, this.player.y);
@@ -183,6 +188,7 @@ export class GameScene extends Phaser.Scene implements Juice {
   private cleanup(): void {
     this.game.events.off(Phaser.Core.Events.BLUR, this.autoPause, this);
     this.controls.destroy();
+    this.combat?.destroy();
     this.player?.destroy();
     this.level.destroy();
     this.scene.stop('Hud');
@@ -362,7 +368,9 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.acc += simDt;
     let steps = 0;
     while (this.acc >= STEP && steps < MAX_STEPS_PER_FRAME) {
-      this.player.fixedUpdate(STEP, this.controls, this.anchors);
+      this.hookTargets = (this.anchors as AnchorPoint[]).concat(this.combat.targets());
+      this.player.fixedUpdate(STEP, this.controls, this.hookTargets);
+      this.combat.fixedUpdate(STEP);
       this.acc -= STEP;
       steps++;
     }
@@ -370,6 +378,9 @@ export class GameScene extends Phaser.Scene implements Juice {
     const alpha = this.acc / STEP;
 
     this.player.render(real * this.timeScale, alpha, this.elapsed);
+    this.combat.render(alpha, real * this.timeScale);
+    this.stats.kills = this.combat.kills;
+    this.stats.bestCombo = this.combat.bestCombo;
     const b = this.player.body;
     // while tethered, frame the anchor too
     const rope = this.player.grapple.rope;
@@ -422,7 +433,7 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.crosshair.setPosition(Math.round(aim.x - cam.scrollX), Math.round(aim.y - cam.scrollY));
     this.crosshair.setVisible(this.controls.usingMouse && this.state === 'play');
     const [hx, hy] = p.handPos();
-    const target = this.state === 'play' ? Grapple.pickAnchor(this.level.world, hx, hy, aim.x, aim.y, this.anchors) : null;
+    const target = this.state === 'play' ? Grapple.pickAnchor(this.level.world, hx, hy, aim.x, aim.y, this.hookTargets.length ? this.hookTargets : this.anchors) : null;
     this.hitMark.setVisible(false);
     if (target && !p.grapple.attached) {
       this.crosshair.setFrame('cross_lock');
@@ -545,6 +556,7 @@ export class GameScene extends Phaser.Scene implements Juice {
         const cp = this.checkpoints[this.currentCp];
         const sp = cp ? { x: cp.x, y: cp.y } : this.level.data.spawn;
         p.respawn(sp.x, sp.y);
+        this.combat.reset();
         this.cam.snap(p.x, p.y);
         this.state = 'play';
         this.respawning = false;

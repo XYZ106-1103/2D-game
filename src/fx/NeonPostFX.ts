@@ -60,7 +60,7 @@ void main() {
   glow /= 8.0;
   float dth = bayer4(gl_FragCoord.xy);
   glow = floor(glow * 10.0 + dth) / 10.0;
-  col += glow * uBloom;
+  col = clamp(col + glow * uBloom, 0.0, 1.0);
 
   // grade: lift shadows toward violet, gentle S-curve
   float lum = dot(col, vec3(0.299, 0.587, 0.114));

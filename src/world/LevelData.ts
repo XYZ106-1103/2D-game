@@ -27,6 +27,12 @@ export interface TriggerDef {
   dialog: string;
 }
 
+export interface EnemySpawn {
+  kind: 'drone' | 'sentry' | 'trooper';
+  x: number;
+  y: number;
+}
+
 export interface LevelData {
   id: string;
   title: string;
@@ -42,6 +48,7 @@ export interface LevelData {
   exit: { x: number; y: number };
   triggers: TriggerDef[];
   decor: DecorDef[];
+  enemies: EnemySpawn[];
 }
 
 /** Small DSL for authoring levels in tile coordinates. */
@@ -68,6 +75,7 @@ export class LevelBuilder {
       exit: { x: 0, y: 0 },
       triggers: [],
       decor: [],
+      enemies: [],
     };
   }
 
@@ -130,6 +138,13 @@ export class LevelBuilder {
 
   trigger(tx: number, ty: number, tw: number, th: number, dialog: string): this {
     this.data.triggers.push({ x: tx * TILE, y: ty * TILE, w: tw * TILE, h: th * TILE, dialog });
+    return this;
+  }
+
+  /** Enemy spawn. Drones float at the tile centre; ground units stand on row ty+1. */
+  enemy(kind: EnemySpawn['kind'], tx: number, ty: number): this {
+    const x = tx * TILE + 8;
+    this.data.enemies.push({ kind, x, y: kind === 'drone' ? ty * TILE + 8 : (ty + 1) * TILE });
     return this;
   }
 

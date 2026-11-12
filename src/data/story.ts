@@ -34,6 +34,11 @@ export const DIALOGS: Record<string, DialogLine[]> = {
     { who: 'ION', text: '레테의 탑이 보이는군. 저기서 무언가 나를 부르고 있어.' },
   ],
   exit: [{ who: 'MOTH', text: '저 승강기면 9구역 봉쇄선을 넘을 수 있어요. 서둘러요.' }],
+  combat: [
+    { who: 'MOTH', text: '레테 경비병이에요. 저 방패는 정면 공격을 막아요.' },
+    { who: 'MOTH', text: '[우클릭]으로 베기. 등 뒤나 머리 위를 노리거나, 와이어로 걸어 끌려가며 일격을.' },
+  ],
+  sentry: [{ who: 'MOTH', text: '포탑이 붉은 조준선을 그리면 피하거나, 날아오는 탄을 베어 되돌려요.' }],
   checkpoint: [{ who: 'SYSTEM', text: '메모리 릴레이 동기화 완료.' }],
 };
 
@@ -74,6 +79,8 @@ export const UI_TEXT = {
   time: '시간',
   deaths: '재구성',
   logs: '기록',
+  kills: '처치',
+  bestCombo: '최대 콤보',
   checkpoint: 'CHECKPOINT',
   checkpointSub: '메모리 동기화',
   back: '뒤로',
@@ -98,6 +105,6 @@ export const CONTROLS: { keys: string[]; label: string }[] = [
   { keys: ['MOUSE_L'], label: '와이어 발사 (누르고 유지)' },
   { keys: ['W', 'S'], label: '와이어 감기 / 풀기 (휠)' },
   { keys: ['SHIFT'], label: '대시 (방향키로 8방향)' },
-  { keys: ['MOUSE_R'], label: '공격 (J)' },
+  { keys: ['MOUSE_R'], label: '공격 · 적에게 와이어 = 돌진 일격' },
   { keys: ['ESC'], label: '일시정지' },
 ];

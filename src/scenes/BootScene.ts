@@ -24,6 +24,9 @@ export class BootScene extends Phaser.Scene {
     this.load.spritesheet('player', 'sprites/player.png', { frameWidth: 48, frameHeight: 48 });
     this.load.json('player-sheet', 'sprites/player.json');
     this.load.image('tiles', 'sprites/tiles.png');
+    this.load.spritesheet('trooper', 'sprites/trooper.png', { frameWidth: 48, frameHeight: 48 });
+    this.load.json('trooper-sheet', 'sprites/trooper.json');
+    this.load.atlas('enemies', 'sprites/enemies.png', 'sprites/enemies.json');
     this.load.atlas('props', 'sprites/props.png', 'sprites/props.json');
     this.load.atlas('fx', 'sprites/fx.png', 'sprites/fx.json');
     this.load.atlas('ui', 'sprites/ui.png', 'sprites/ui.json');

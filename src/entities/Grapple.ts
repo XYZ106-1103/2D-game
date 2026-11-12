@@ -6,14 +6,21 @@ import { Rope } from '../physics/Rope.ts';
 import type { TileWorld } from '../physics/TileWorld.ts';
 
 export interface AnchorPoint {
-  x: number;
-  y: number;
+  readonly x: number;
+  readonly y: number;
+  /** Enemies are hook targets too: hooking one triggers a zip strike. */
+  readonly isEnemy?: boolean;
+  /** Hit radius for the hook (defaults to HOOK.anchorRadius). */
+  readonly hookRadius?: number;
+  /** Dynamic targets report when they stop being valid. */
+  readonly alive?: boolean;
 }
 
-export type GrappleState = 'idle' | 'flying' | 'attached' | 'retract';
+export type GrappleState = 'idle' | 'flying' | 'attached' | 'zip' | 'retract';
 
 export interface GrappleEvents {
   onAttach(x: number, y: number, anchor: boolean, nx: number, ny: number): void;
+  onHookEnemy(target: AnchorPoint): void;
   onFail(x: number, y: number, glass: boolean): void;
 }
 
@@ -50,17 +57,21 @@ export class Grapple {
   }
 
   get busy(): boolean {
-    return this.state === 'flying' || this.state === 'attached';
+    return this.state === 'flying' || this.state === 'attached' || this.state === 'zip';
   }
 
   get canFire(): boolean {
-    return this.state !== 'flying' && this.state !== 'attached' && this.cooldown <= 0;
+    return !this.busy && this.cooldown <= 0;
   }
+
+  /** Enemy currently being zipped to. */
+  zipTarget: AnchorPoint | null = null;
 
   /** Re-grapple: drop the current line so a new shot can leave this frame. */
   forceReady(): void {
     this.rope.detach();
-    if (this.state === 'flying' || this.state === 'attached') this.state = 'retract';
+    if (this.busy) this.state = 'retract';
+    this.zipTarget = null;
     this.cooldown = 0;
   }
 
@@ -80,10 +91,11 @@ export class Grapple {
       if (d > HOOK.maxLen + 6 || d < 4) continue;
       const cos = (ax * ux + ay * uy) / d;
       const ang = Math.acos(Math.max(-1, Math.min(1, cos))) / RAD;
-      const nearCursor = Math.hypot(a.x - tx, a.y - ty) < HOOK.assistRadius;
+      const nearCursor = Math.hypot(a.x - tx, a.y - ty) < HOOK.assistRadius + (a.hookRadius ?? 0);
       if (ang > HOOK.assistAngleDeg && !nearCursor) continue;
       if (!world.clear(fx, fy, a.x, a.y)) continue;
-      const score = nearCursor ? ang * 0.25 : ang;
+      // enemies slightly preferred: the zip strike is the sharper tool
+      const score = (nearCursor ? ang * 0.25 : ang) * (a.isEnemy ? 0.8 : 1);
       if (score < bestScore) {
         bestScore = score;
         best = a;
@@ -117,6 +129,7 @@ export class Grapple {
       return;
     }
     this.rope.detach();
+    this.zipTarget = null;
     this.state = 'retract';
     this.cooldown = immediate ? 0 : HOOK.cooldown;
   }
@@ -124,6 +137,7 @@ export class Grapple {
   /** Instantly clear (death / respawn). */
   reset(): void {
     this.rope.detach();
+    this.zipTarget = null;
     this.state = 'idle';
     this.hook.setVisible(false);
     this.g.clear();
@@ -138,13 +152,23 @@ export class Grapple {
       // anchors first (they float in open air)
       let hitAnchor: AnchorPoint | null = null;
       for (const a of anchors) {
-        const r = a === this.targetAnchor ? HOOK.anchorRadius + 3 : HOOK.anchorRadius;
+        const base = a.hookRadius ?? HOOK.anchorRadius;
+        const r = a === this.targetAnchor ? base + 3 : base;
         if (pointSegDist(a.x, a.y, this.hx, this.hy, nx, ny) < r) {
           hitAnchor = a;
           break;
         }
       }
       const hit = this.world.raycast(this.hx, this.hy, nx, ny);
+      if (hitAnchor && hitAnchor.isEnemy) {
+        this.hx = hitAnchor.x;
+        this.hy = hitAnchor.y;
+        this.zipTarget = hitAnchor;
+        this.state = 'zip';
+        this.attachT = 0;
+        this.events.onHookEnemy(hitAnchor);
+        return;
+      }
       if (hitAnchor) {
         this.attach(hitAnchor.x, hitAnchor.y, true, 0, 0, bodyX, bodyY);
         return;
@@ -169,6 +193,10 @@ export class Grapple {
         this.state = 'retract';
         this.cooldown = HOOK.cooldown;
       }
+    } else if (this.state === 'zip' && this.zipTarget) {
+      this.hx = this.zipTarget.x;
+      this.hy = this.zipTarget.y;
+      this.hookAngle = Math.atan2(this.hy - handY, this.hx - handX);
     } else if (this.state === 'retract') {
       const dx = handX - this.hx;
       const dy = handY - this.hy;
@@ -213,6 +241,12 @@ export class Grapple {
     this.hook.setRotation(this.hookAngle);
 
     const C = RAMPS.cyan;
+    if (this.state === 'zip') {
+      const flash = Math.floor(this.time * 30) % 2 === 0;
+      this.line(this.hx, this.hy, hx, hy, flash ? 0xffffff : C[6], RAMPS.magenta[4]);
+      this.flush();
+      return;
+    }
     if (this.state === 'flying' || this.state === 'retract') {
       // travelling wave that settles as the line straightens
       const x0 = hx;

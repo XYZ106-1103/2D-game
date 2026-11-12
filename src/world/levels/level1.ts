@@ -31,10 +31,13 @@ export function buildLevel1(): LevelData {
   L.prop('billboard', 59, 29).prop('ac', 64, 29).prop('crate', 69, 29).prop('crate', 69, 28, { dy: 2 });
   L.prop('sign:lethe', 77, 26, { front: true });
   L.prop('sign:hotel', 71, 24, { dx: -12, front: true });
+  L.trigger(55, 18, 3, 11, 'combat');
+  L.enemy('trooper', 64, 28);
 
   // --- D. Tall roof, checkpoint 2 ----------------------------------------------------
   L.checkpoint(79, 19);
   L.prop('antenna', 73, 20).prop('ac', 82, 20).prop('lamp', 76, 20);
+  L.enemy('drone', 82, 15);
 
   // --- E. Glass district: hook the steel beam, not the glass ---------------------
   L.building(85, 124, 41);
@@ -48,6 +51,8 @@ export function buildLevel1(): LevelData {
   L.trigger(83, 8, 3, 12, 'glass');
   L.prop('sign:danger', 99, 36, { front: true });
   L.prop('sign:bar', 112, 30, { front: true });
+  L.trigger(86, 8, 3, 12, 'sentry');
+  L.enemy('sentry', 106, 20).enemy('drone', 98, 20).enemy('drone', 114, 17);
 
   // --- F. Tower climb: steel ledges + nodes, reel and chain ------------------------
   L.building(125, 134, 26);
@@ -59,6 +64,7 @@ export function buildLevel1(): LevelData {
   L.trigger(125, 14, 4, 12, 'climb');
   L.prop('ac', 130, 26).prop('barrel', 126, 26).prop('sign:ramen', 140, 18, { front: true });
   L.backwall(135, 8, 136, 25);
+  L.enemy('trooper', 132, 25).enemy('drone', 131, 13);
 
   // --- G. High rooftops: dash gap + long momentum swing ------------------------------
   L.checkpoint(143, 6);
@@ -68,6 +74,7 @@ export function buildLevel1(): LevelData {
   L.log(172, 7, 'log3');
   L.prop('antenna', 139, 7).prop('dish', 145, 7).prop('tank', 158, 8).prop('lamp', 161, 8);
   L.prop('sign:pharm', 155, 13, { dx: -10, front: true });
+  L.enemy('sentry', 145, 6).enemy('trooper', 160, 7);
 
   // --- H. Exit lift -------------------------------------------------------------------
   L.building(179, 199, 9);
@@ -75,6 +82,7 @@ export function buildLevel1(): LevelData {
   L.exit(195, 8);
   L.prop('billboard', 186, 9).prop('ac', 181, 9).prop('crate', 191, 9).prop('lamp', 183, 9);
   L.prop('sign:open', 179, 13, { dx: -8, front: true });
+  L.enemy('trooper', 189, 8).enemy('drone', 185, 4);
 
   return L.build();
 }

@@ -6,7 +6,7 @@
 //   → contact shadows between overlapping parts → 1px ink outline.
 import { INK, RAMPS } from '../../src/art/palette.ts';
 import { PixelCanvas, drawStampRotated, forEachPolyPixel, type Stamp } from './pixel.ts';
-import { HEAD, TORSO, TORSO_JOINTS } from './stamps.ts';
+import { HEAD, TORSO, TORSO_JOINTS, TROOPER_HEAD, TROOPER_TORSO, TROOPER_JOINTS } from './stamps.ts';
 
 export type V2 = [number, number];
 
@@ -20,8 +20,8 @@ export interface Pose {
   lean: number;
   /** Extra head tilt relative to torso. */
   head?: number;
-  headStamp?: keyof typeof HEAD;
-  torsoStamp?: keyof typeof TORSO;
+  headStamp?: string;
+  torsoStamp?: string;
   /** Front (gauntlet) arm: [shoulder angle rel. torso, elbow bend]. 0 = hanging, + = forward. */
   aF: V2;
   /** Back arm. */
@@ -43,6 +43,60 @@ export interface FrameMeta {
   neck: V2; // scarf anchor
   blade?: [number, number, number, number];
 }
+
+/** Visual identity rendered by the shared rig (player, enemies). */
+export interface Skin {
+  head: Record<string, Stamp>;
+  torso: Record<string, Stamp>;
+  joints: typeof TORSO_JOINTS;
+  sleeve: readonly number[];
+  sleeveBase: number;
+  legs: readonly number[];
+  legBase: number;
+  boots: readonly number[];
+  bootBase: number;
+  coat: boolean;
+  frontArm: 'gauntlet' | 'shield';
+  backWeapon: 'none' | 'baton';
+  kneePad: number | null;
+  scale: number;
+}
+
+export const ION_SKIN: Skin = {
+  head: HEAD,
+  torso: TORSO,
+  joints: TORSO_JOINTS,
+  sleeve: RAMPS.jacket,
+  sleeveBase: 2,
+  legs: RAMPS.pants,
+  legBase: 4,
+  boots: RAMPS.boots,
+  bootBase: 3,
+  coat: true,
+  frontArm: 'gauntlet',
+  backWeapon: 'none',
+  kneePad: RAMPS.steel[5],
+  scale: 1,
+};
+
+const ARMOR = [RAMPS.night[4], RAMPS.night[5], RAMPS.night[6], RAMPS.night[7], RAMPS.night[8], RAMPS.night[9], RAMPS.night[10]];
+
+export const TROOPER_SKIN: Skin = {
+  head: TROOPER_HEAD,
+  torso: TROOPER_TORSO,
+  joints: TROOPER_JOINTS,
+  sleeve: ARMOR,
+  sleeveBase: 3,
+  legs: RAMPS.pants,
+  legBase: 3,
+  boots: ARMOR,
+  bootBase: 3,
+  coat: false,
+  frontArm: 'shield',
+  backWeapon: 'baton',
+  kneePad: RAMPS.magenta[4],
+  scale: 1.06,
+};
 
 const LIGHT: V2 = norm([0.55, -0.83]);
 
@@ -198,7 +252,7 @@ export class Composer {
 }
 
 /** Render a pose into a frame. Returns canvas + anchors. */
-export function renderPose(pose: Pose, size = 48): { canvas: PixelCanvas; meta: FrameMeta } {
+export function renderPose(pose: Pose, size = 48, skin: Skin = ION_SKIN): { canvas: PixelCanvas; meta: FrameMeta } {
   const comp = new Composer(size, size);
   const rot = pose.rot ?? 0;
   const pivot = pose.pivot ?? pose.root;
@@ -209,18 +263,19 @@ export function renderPose(pose: Pose, size = 48): { canvas: PixelCanvas; meta: 
   const lean = pose.lean;
   const tl = (off: V2): V2 => add(root, rotV(off, lean));
 
-  const shoulderF = tl(TORSO_JOINTS.shoulderF);
-  const shoulderB = tl(TORSO_JOINTS.shoulderB);
-  const neck = tl(TORSO_JOINTS.neck);
-  const scarf = tl(TORSO_JOINTS.scarf);
-  const hipF = add(root, rotV(TORSO_JOINTS.hipF, lean * 0.4));
-  const hipB = add(root, rotV(TORSO_JOINTS.hipB, lean * 0.4));
-  const coatRoot = add(root, rotV(TORSO_JOINTS.coat, lean * 0.6));
+  const JT = skin.joints;
+  const shoulderF = tl(JT.shoulderF);
+  const shoulderB = tl(JT.shoulderB);
+  const neck = tl(JT.neck);
+  const scarf = tl(JT.scarf);
+  const hipF = add(root, rotV(JT.hipF, lean * 0.4));
+  const hipB = add(root, rotV(JT.hipB, lean * 0.4));
+  const coatRoot = add(root, rotV(JT.coat, lean * 0.6));
 
-  const UPPER = 4.6;
-  const FORE = 4.4;
-  const THIGH = 6.2;
-  const SHIN = 6.0;
+  const UPPER = 4.6 * skin.scale;
+  const FORE = 4.4 * skin.scale;
+  const THIGH = 6.2 * skin.scale;
+  const SHIN = 6.0 * skin.scale;
 
   const arm = (sh: V2, a: V2): [V2, V2, V2] => {
     const upAbs = a[0] + lean;
@@ -240,21 +295,35 @@ export function renderPose(pose: Pose, size = 48): { canvas: PixelCanvas; meta: 
   const [kneeB, ankleB, footAngB] = leg(hipB, pose.lB);
   const [kneeF, ankleF, footAngF] = leg(hipF, pose.lF);
 
-  const J = RAMPS.jacket;
-  const P = RAMPS.pants;
-  const B = RAMPS.boots;
+  const J = skin.sleeve;
+  const P = skin.legs;
+  const B = skin.boots;
   const S = RAMPS.steel;
+  const PANTS = RAMPS.pants;
+  const sb = skin.sleeveBase;
 
   // --- back arm -----------------------------------------------------------
   const idArmB = comp.part();
-  comp.capsule(idArmB, T(shoulderB), T(elbowB), 1.45, J, 2);
-  comp.capsule(idArmB, T(elbowB), T(handB), 1.3, J, 2);
-  comp.capsule(idArmB, T(handB), T(handB), 1.2, P, 2);
+  if (skin.backWeapon === 'baton') {
+    // stun baton held in the back hand (drawn behind the arm)
+    const bd = dirOf(pose.aB[0] + lean + pose.aB[1] + 70);
+    const b0 = T(add(handB, mul(bd, -1.5)));
+    const b1 = T(add(handB, mul(bd, 7.5)));
+    const n = Math.ceil(Math.hypot(b1[0] - b0[0], b1[1] - b0[1]));
+    for (let i = 0; i <= n; i++) {
+      const x = b0[0] + ((b1[0] - b0[0]) * i) / n;
+      const y = b0[1] + ((b1[1] - b0[1]) * i) / n;
+      comp.plot(idArmB, x, y, i >= n - 1 ? RAMPS.magenta[6] : i >= n - 2 ? RAMPS.magenta[4] : S[2]);
+    }
+  }
+  comp.capsule(idArmB, T(shoulderB), T(elbowB), 1.45, J, sb);
+  comp.capsule(idArmB, T(elbowB), T(handB), 1.3, J, sb);
+  comp.capsule(idArmB, T(handB), T(handB), 1.2, PANTS, 2);
 
   // --- coat tail ------------------------------------------------------------
   const coatAng = pose.coat ?? 0;
   const idCoat = comp.part();
-  {
+  if (skin.coat) {
     // Tapered back flap of the jacket.
     const dTail = dirOf(-12 - coatAng);
     const side = rotV(dTail, 90);
@@ -268,8 +337,8 @@ export function renderPose(pose: Pose, size = 48): { canvas: PixelCanvas; meta: 
   // --- legs -----------------------------------------------------------------
   const drawLeg = (hp: V2, knee: V2, ankle: V2, footAng: number, dark: number) => {
     const id = comp.part();
-    comp.capsule(id, T(hp), T(knee), 1.85, P, 4 - dark);
-    comp.capsule(id, T(knee), T(ankle), 1.6, P, 4 - dark);
+    comp.capsule(id, T(hp), T(knee), 1.85, P, skin.legBase - dark);
+    comp.capsule(id, T(knee), T(ankle), 1.6, P, skin.legBase - dark);
     // boot: oriented by foot direction (forward = +90 deg from shin)
     const fwd = dirOf(footAng + 90);
     const down = dirOf(footAng);
@@ -281,7 +350,7 @@ export function renderPose(pose: Pose, size = 48): { canvas: PixelCanvas; meta: 
       add(add(a, mul(fwd, 3.9)), mul(down, 3.0)),
       add(add(a, mul(fwd, -2.0)), mul(down, 3.0)),
     ];
-    comp.poly(id, pts.map(T), B, 3 - dark, true);
+    comp.poly(id, pts.map(T), B, skin.bootBase - dark, true);
     // sole
     const s0 = add(add(a, mul(fwd, -2.0)), mul(down, 2.6));
     const s1 = add(add(a, mul(fwd, 3.6)), mul(down, 2.6));
@@ -291,13 +360,13 @@ export function renderPose(pose: Pose, size = 48): { canvas: PixelCanvas; meta: 
     for (let i = 0; i <= n; i++) {
       const x = ts0[0] + ((ts1[0] - ts0[0]) * i) / n;
       const y = ts0[1] + ((ts1[1] - ts0[1]) * i) / n;
-      comp.plot(id, x, y, B[5 - dark]);
+      comp.plot(id, x, y, B[Math.min(B.length - 1, skin.bootBase + 2 - dark)]);
     }
     // knee pad (front leg only)
-    if (!dark) {
+    if (!dark && skin.kneePad !== null) {
       const kp = T(add(knee, mul(dirOf(pose.lF[0] + 90), 0.9)));
-      comp.plot(id, kp[0], kp[1], S[5]);
-      comp.plot(id, kp[0], kp[1] + 1, S[4]);
+      comp.plot(id, kp[0], kp[1], skin.kneePad);
+      comp.plot(id, kp[0], kp[1] + 1, darken(skin.kneePad));
     }
   };
   drawLeg(hipB, kneeB, ankleB, footAngB, 1);
@@ -305,16 +374,38 @@ export function renderPose(pose: Pose, size = 48): { canvas: PixelCanvas; meta: 
 
   // --- torso ------------------------------------------------------------------
   const idTorso = comp.part();
-  comp.stamp(idTorso, TORSO[pose.torsoStamp ?? 'normal'], T(root), lean + rot);
+  comp.stamp(idTorso, skin.torso[pose.torsoStamp ?? 'normal'] ?? skin.torso.normal, T(root), lean + rot);
 
   // --- head -------------------------------------------------------------------
   const idHead = comp.part();
-  comp.stamp(idHead, HEAD[pose.headStamp ?? 'normal'], T(neck), lean + (pose.head ?? 0) + rot);
+  comp.stamp(idHead, skin.head[pose.headStamp ?? 'normal'] ?? skin.head.normal, T(neck), lean + (pose.head ?? 0) + rot);
 
-  // --- front arm + gauntlet ------------------------------------------------------
+  // --- front arm --------------------------------------------------------------------
   const idArmF = comp.part();
-  comp.capsule(idArmF, T(shoulderF), T(elbowF), 1.5, J, 3, 1);
-  // gauntlet: bulkier steel forearm
+  comp.capsule(idArmF, T(shoulderF), T(elbowF), 1.5, J, sb + 1, 1);
+  if (skin.frontArm === 'shield') {
+    comp.capsule(idArmF, T(elbowF), T(handF), 1.4, J, sb + 1, 1);
+    comp.capsule(idArmF, T(handF), T(handF), 1.25, PANTS, 3);
+    // riot shield: tall slab held in front of the fist, aligned with the torso
+    const idShield = comp.part();
+    const up = dirOf(180 + lean * 0.6);
+    const fwd = dirOf(90 + lean * 0.6);
+    const c = add(handF, mul(fwd, 2.2));
+    const hw = 2.4;
+    const hh = 9.5;
+    const quad = (u0: number, u1: number, v0: number, v1: number): V2[] => [
+      add(add(c, mul(fwd, u0)), mul(up, v0)),
+      add(add(c, mul(fwd, u1)), mul(up, v0)),
+      add(add(c, mul(fwd, u1)), mul(up, v1)),
+      add(add(c, mul(fwd, u0)), mul(up, v1)),
+    ];
+    comp.poly(idShield, quad(-hw, hw, -hh, hh).map(T), ARMOR, 4, true);
+    // dark viewport + magenta stripe
+    comp.poly(idShield, quad(-hw + 1.2, hw - 0.6, 3.5, 7.5).map(T), RAMPS.night, 2, false);
+    comp.poly(idShield, quad(-hw + 0.9, hw - 0.3, -2.2, -0.8).map(T), RAMPS.magenta, 4, false);
+    return { canvas: comp.finish(), meta: { hand: T(handF), neck: T(scarf) } };
+  }
+  // gauntlet: bulkier steel forearm (ION)
   comp.capsule(idArmF, T(elbowF), T(add(handF, mul(foreDirF, -0.6))), 1.85, S, 4, 1);
   // cyan core light on the gauntlet
   const core = T(add(add(elbowF, mul(foreDirF, 1.6)), rotV(mul(foreDirF, 1.1), -90)));

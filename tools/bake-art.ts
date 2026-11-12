@@ -9,6 +9,7 @@ import { sky, spire, farLayer, midLayer, nearLayer, fogStrip } from './art/backg
 import { buildProps } from './art/props.ts';
 import { buildFx } from './art/fx.ts';
 import { buildUi } from './art/ui.ts';
+import { trooperAnims, droneAnims, sentrySprites, combatFx } from './art/enemies.ts';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const OUT = join(ROOT, 'public/assets');
@@ -34,7 +35,27 @@ save('bg/mid.png', midLayer());
 save('bg/near.png', nearLayer());
 save('bg/fog.png', fogStrip());
 
+// enemies: trooper sheet (48×48 frames + anim table) and an atlas for the rest
+{
+  const anims = trooperAnims();
+  const frames = anims.flatMap((a) => a.frames);
+  const cols = 8;
+  const sheet = new PixelCanvas(cols * 48, Math.ceil(frames.length / cols) * 48);
+  frames.forEach((f, i) => sheet.blit(f, (i % cols) * 48, Math.floor(i / cols) * 48));
+  save('sprites/trooper.png', sheet);
+  let k = 0;
+  const table: Record<string, { frames: number[]; fps: number; loop: boolean }> = {};
+  for (const a of anims) table[a.name] = { frames: a.frames.map(() => k++), fps: a.fps, loop: a.loop };
+  writeJSON(join(OUT, 'sprites/trooper.json'), { frameWidth: 48, frameHeight: 48, origin: [24, 46], anims: table });
+}
+const enemyItems = [
+  ...droneAnims().flatMap((a) => a.frames.map((c, i) => ({ name: `drone_${a.name}_${i}`, c }))),
+  ...sentrySprites(),
+  ...combatFx(),
+];
+
 for (const [name, items, width] of [
+  ['enemies', enemyItems, 512],
   ['props', buildProps(), 256],
   ['fx', buildFx(), 256],
   ['ui', buildUi(), 256],
