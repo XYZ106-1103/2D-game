@@ -43,6 +43,7 @@ export function applyAudioSettings(): void {
 
 export interface Progress {
   level: string;
+  stage: number;
   checkpoint: number;
   logs: string[];
 }

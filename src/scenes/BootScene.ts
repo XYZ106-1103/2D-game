@@ -27,10 +27,12 @@ export class BootScene extends Phaser.Scene {
     this.load.spritesheet('trooper', 'sprites/trooper.png', { frameWidth: 48, frameHeight: 48 });
     this.load.json('trooper-sheet', 'sprites/trooper.json');
     this.load.atlas('enemies', 'sprites/enemies.png', 'sprites/enemies.json');
+    this.load.atlas('boss', 'sprites/boss.png', 'sprites/boss.json');
     this.load.atlas('props', 'sprites/props.png', 'sprites/props.json');
     this.load.atlas('fx', 'sprites/fx.png', 'sprites/fx.json');
     this.load.atlas('ui', 'sprites/ui.png', 'sprites/ui.json');
-    for (const k of ['sky', 'spire', 'far', 'mid', 'near', 'fog']) this.load.image(`bg-${k}`, `bg/${k}.png`);
+    for (const k of ['sky', 'spire', 'far', 'mid', 'near', 'fog', 'market_sky', 'market_far', 'market_mid', 'market_near', 'tower_sky', 'tower_far', 'tower_clouds', 'tower_mid'])
+      this.load.image(`bg-${k}`, `bg/${k}.png`);
     for (const f of ['galmuri7', 'galmuri9', 'galmuri11', 'galmuri11b']) this.load.bitmapFont(f, `fonts/${f}.png`, `fonts/${f}.xml`);
   }
 

@@ -14,7 +14,9 @@ import type { NeonPostFX } from '../fx/NeonPostFX.ts';
 import { Level } from '../world/Level.ts';
 import { Parallax } from '../world/Parallax.ts';
 import { Weather } from '../world/Weather.ts';
-import { buildLevel1 } from '../world/levels/level1.ts';
+import { STAGES } from '../world/levels/index.ts';
+import { Gimmicks } from '../world/Gimmicks.ts';
+import { Archivist } from '../entities/boss/Archivist.ts';
 import type { HudScene } from './HudScene.ts';
 import { Combat } from '../combat/Combat.ts';
 
@@ -97,12 +99,22 @@ export class GameScene extends Phaser.Scene implements Juice {
   private hud!: HudScene;
   private dev = false;
   private exitT = 0;
+  stageIndex = 0;
+  gimmicks!: Gimmicks;
+  /** Set by the boss controller: blocks the exit until the fight is won. */
+  exitLocked = false;
+  boss: Archivist | null = null;
 
   constructor() {
     super('Game');
   }
 
-  init(data: { continue?: boolean }): void {
+  init(data: { continue?: boolean; stage?: number; carry?: string[] }): void {
+    const progress = data.continue ? loadProgress() : null;
+    const urlStage = new URLSearchParams(location.search).get('stage');
+    this.stageIndex = Math.max(0, Math.min(STAGES.length - 1, data.stage ?? progress?.stage ?? (urlStage ? Number(urlStage) : 0)));
+    this.boss = null;
+    this.exitLocked = false;
     this.anchors = [];
     this.checkpoints = [];
     this.logs = [];
@@ -121,18 +133,20 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.exitT = 0;
     this.stats = { time: 0, deaths: 0, logs: [], kills: 0, bestCombo: 0 };
     this.registry.set('continue', !!data.continue);
+    if (!data.continue && data.stage === undefined) this.registry.set('run', { time: 0, deaths: 0, kills: 0, bestCombo: 0, logs: [] });
+    if (data.carry) this.stats.logs = [...data.carry];
   }
 
   create(): void {
     this.dev = new URLSearchParams(location.search).has('dev');
-    const data = buildLevel1();
+    const data = STAGES[this.stageIndex]();
     this.level = new Level(data);
     const world = this.level.world;
     const cam = this.cameras.main;
     cam.setRoundPixels(true);
     cam.setBackgroundColor('#05030a');
 
-    this.parallax = new Parallax(this, world.pixelHeight);
+    this.parallax = new Parallax(this, world.pixelHeight, data.theme);
     this.level.render(this);
     this.particles = new Particles(this);
     this.controls = new Input(this);
@@ -142,7 +156,7 @@ export class GameScene extends Phaser.Scene implements Juice {
     // spawn (new game or continue)
     let spawn = data.spawn;
     const progress = this.registry.get('continue') ? loadProgress() : null;
-    if (progress && progress.level === data.id && this.checkpoints[progress.checkpoint]) {
+    if (progress && progress.level === data.id && this.checkpoints[progress.checkpoint] && progress.checkpoint > 0) {
       const cp = this.checkpoints[progress.checkpoint];
       spawn = { x: cp.x, y: cp.y };
       this.activateCheckpoint(progress.checkpoint, true);
@@ -150,11 +164,14 @@ export class GameScene extends Phaser.Scene implements Juice {
         const l = this.logs.find((o) => o.id === id);
         if (l) this.takeLog(l, true);
       }
-      this.firedTriggers.add('intro').add('move');
+      this.firedTriggers.add('intro').add('move').add('m_intro').add('t_intro');
     }
+    if (progress) for (const id of progress.logs) if (!this.stats.logs.includes(id)) this.stats.logs.push(id);
     this.player = new Player(this, world, spawn.x, spawn.y, this.particles, this);
     this.combat = new Combat(this, world, this.player, this.particles, this, data.enemies);
     this.combat.onCombo = (n) => this.hud?.combo(n);
+    this.gimmicks = new Gimmicks(this, this.level, this.particles, this);
+    if (data.boss) this.setupBoss();
 
     this.cam = new CameraDirector(cam, world.pixelWidth, world.pixelHeight);
     this.cam.snap(this.player.x, this.player.y);
@@ -163,6 +180,7 @@ export class GameScene extends Phaser.Scene implements Juice {
       this.level.surfaces,
       (a) => this.flash(a),
       () => audio.play('thunder', { vol: 0.7 }),
+      data.rain,
     );
 
     this.crosshair = this.add.image(0, 0, 'fx', 'cross_idle').setScrollFactor(0).setDepth(DEPTH.cursor);
@@ -179,16 +197,51 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
 
     audio.unlock();
-    audio.playMusic('stage');
+    audio.playMusic(data.music);
     audio.startAmbience();
     cam.fadeIn(900, 5, 3, 10);
     this.game.events.on(Phaser.Core.Events.BLUR, this.autoPause, this);
+  }
+
+  private setupBoss(): void {
+    const boss = new Archivist(this);
+    this.boss = boss;
+    this.exitLocked = true;
+    this.combat.extraTargets = () => boss.hookTargets();
+    this.combat.extraHit = (x, y, w, h, id, dmg, kind, dir) => boss.hit(x, y, w, h, id, dmg, kind, dir);
+    boss.onPhase = (ph) => this.hud?.dialog(ph === 2 ? 'b_phase2' : 'b_phase3');
+    boss.onDefeated = () => {
+      this.time.delayedCall(1600, () => {
+        this.hud?.bossBar(false);
+        this.hud?.dialog('b_end');
+        this.exitLocked = false;
+        this.particles.ring(this.exit.x, this.exit.y - 20, COLORS.acid);
+        audio.stopMusic(2);
+      });
+    };
+    // intro cinematic: lock controls, letterbox, rise, name card, dialogue
+    this.player.controlLocked = true;
+    this.time.delayedCall(400, () => {
+      this.hud?.letterbox(true);
+      audio.play('roar');
+      this.shake(4, 1.2);
+    });
+    this.time.delayedCall(1700, () => this.hud?.nameCard('기록관', 'LETHE 집행 유닛 LT-0 · ARCHIVIST'));
+    this.time.delayedCall(2600, () => this.hud?.dialog('b_intro'));
+    this.time.delayedCall(9800, () => {
+      this.hud?.letterbox(false);
+      this.hud?.bossBar(true, '기록관', () => boss.totalHp / boss.maxHp);
+      this.player.controlLocked = false;
+      boss.begin();
+    });
   }
 
   private cleanup(): void {
     this.game.events.off(Phaser.Core.Events.BLUR, this.autoPause, this);
     this.controls.destroy();
     this.combat?.destroy();
+    this.gimmicks?.destroy();
+    this.boss?.destroy();
     this.player?.destroy();
     this.level.destroy();
     this.scene.stop('Hud');
@@ -267,7 +320,7 @@ export class GameScene extends Phaser.Scene implements Juice {
     if (cp.active && this.currentCp === i) return;
     cp.active = true;
     this.currentCp = i;
-    saveProgress({ level: this.level.data.id, checkpoint: i, logs: [...this.stats.logs] });
+    saveProgress({ level: this.level.data.id, stage: this.stageIndex, checkpoint: i, logs: [...this.stats.logs] });
     if (!silent) {
       audio.play('checkpoint');
       this.particles.ring(cp.x, cp.y - 26, COLORS.cyan);
@@ -287,7 +340,7 @@ export class GameScene extends Phaser.Scene implements Juice {
       this.particles.sparks(l.x, l.y, -90, 360, 18, [COLORS.magenta, 0xffa0d8, COLORS.white]);
       this.particles.ring(l.x, l.y, COLORS.magenta);
       this.hud?.showLog(l.id);
-      if (this.currentCp >= 0) saveProgress({ level: this.level.data.id, checkpoint: this.currentCp, logs: [...this.stats.logs] });
+      if (this.currentCp >= 0) saveProgress({ level: this.level.data.id, stage: this.stageIndex, checkpoint: this.currentCp, logs: [...this.stats.logs] });
     }
   }
 
@@ -368,9 +421,11 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.acc += simDt;
     let steps = 0;
     while (this.acc >= STEP && steps < MAX_STEPS_PER_FRAME) {
-      this.hookTargets = (this.anchors as AnchorPoint[]).concat(this.combat.targets());
+      this.gimmicks.fixedUpdate(STEP, this.player);
+      this.hookTargets = (this.anchors as AnchorPoint[]).concat(this.gimmicks.movers, this.combat.targets());
       this.player.fixedUpdate(STEP, this.controls, this.hookTargets);
       this.combat.fixedUpdate(STEP);
+      this.boss?.fixedUpdate(STEP);
       this.acc -= STEP;
       steps++;
     }
@@ -379,6 +434,8 @@ export class GameScene extends Phaser.Scene implements Juice {
 
     this.player.render(real * this.timeScale, alpha, this.elapsed);
     this.combat.render(alpha, real * this.timeScale);
+    this.gimmicks.render(real * this.timeScale);
+    this.boss?.render(alpha, real * this.timeScale);
     this.stats.kills = this.combat.kills;
     this.stats.bestCombo = this.combat.bestCombo;
     const b = this.player.body;
@@ -388,6 +445,9 @@ export class GameScene extends Phaser.Scene implements Juice {
       const piv = rope.active;
       this.cam.biasX += (clamp((piv.x - b.x) * 0.28, -60, 60) - this.cam.biasX) * Math.min(1, real * 3);
       this.cam.biasY += (clamp((piv.y - b.y) * 0.3, -50, 20) - this.cam.biasY) * Math.min(1, real * 3);
+    } else if (this.boss && !this.boss.defeated) {
+      this.cam.biasX += (clamp((this.boss.x - b.x) * 0.3, -70, 70) - this.cam.biasX) * Math.min(1, real * 2);
+      this.cam.biasY += (clamp((this.boss.y - b.y) * 0.3, -60, 10) - this.cam.biasY) * Math.min(1, real * 2);
     } else {
       this.cam.biasX *= Math.max(0, 1 - real * 2);
       this.cam.biasY *= Math.max(0, 1 - real * 2);
@@ -518,7 +578,8 @@ export class GameScene extends Phaser.Scene implements Juice {
       }
     }
     // exit
-    if (this.state === 'play' && !p.dead && Math.abs(p.x - this.exit.x) < 12 && Math.abs(p.feetY - this.exit.y) < 20) this.stageClear();
+    this.exit.sprite.setVisible(!this.exitLocked);
+    if (this.state === 'play' && !this.exitLocked && !p.dead && Math.abs(p.x - this.exit.x) < 12 && Math.abs(p.feetY - this.exit.y) < 20) this.stageClear();
     if (this.state === 'clear') {
       this.exitT += dt;
       p.sprite.setAlpha(Math.max(0, 1 - this.exitT * 1.5));
@@ -557,6 +618,8 @@ export class GameScene extends Phaser.Scene implements Juice {
         const sp = cp ? { x: cp.x, y: cp.y } : this.level.data.spawn;
         p.respawn(sp.x, sp.y);
         this.combat.reset();
+        this.gimmicks.reset();
+        this.boss?.reset();
         this.cam.snap(p.x, p.y);
         this.state = 'play';
         this.respawning = false;
@@ -577,8 +640,31 @@ export class GameScene extends Phaser.Scene implements Juice {
     audio.play('clear');
     this.particles.ring(this.exit.x, this.exit.y - 20, COLORS.acid);
     this.flash(0.3);
-    saveProgress(null);
+    const next = this.stageIndex + 1;
+    if (next < STAGES.length) saveProgress({ level: '', stage: next, checkpoint: 0, logs: [...this.stats.logs] });
+    else saveProgress(null);
     this.time.delayedCall(900, () => this.hud?.showClear(this.stats));
+  }
+
+  /** Called by the HUD when the clear panel is confirmed. */
+  advanceStage(): void {
+    const next = this.stageIndex + 1;
+    if (next < STAGES.length) {
+      const run = (this.registry.get('run') as { time: number; deaths: number; kills: number; bestCombo: number } | undefined) ?? { time: 0, deaths: 0, kills: 0, bestCombo: 0 };
+      this.registry.set('run', {
+        time: run.time + this.stats.time,
+        deaths: run.deaths + this.stats.deaths,
+        kills: run.kills + this.stats.kills,
+        bestCombo: Math.max(run.bestCombo, this.stats.bestCombo),
+        logs: [...this.stats.logs],
+      });
+    }
+    this.cameras.main.fadeOut(600, 5, 3, 10);
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      this.scene.stop('Hud');
+      if (next < STAGES.length) this.scene.restart({ stage: next, carry: this.stats.logs });
+      else this.scene.start('Ending', { stats: this.stats });
+    });
   }
 
   private updatePost(dt: number): void {

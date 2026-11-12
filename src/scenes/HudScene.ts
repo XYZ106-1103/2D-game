@@ -40,6 +40,14 @@ export class HudScene extends Phaser.Scene {
   private comboLbl!: Phaser.GameObjects.BitmapText;
   private comboT = 0;
   private comboPop = 0;
+  // cinematic pieces
+  private barTop!: Phaser.GameObjects.Rectangle;
+  private barBot!: Phaser.GameObjects.Rectangle;
+  private barsOn = false;
+  private barsK = 0;
+  private card: Phaser.GameObjects.Container | null = null;
+  private cardLife = 0;
+  private boss: { frame: Phaser.GameObjects.Image; fill: Phaser.GameObjects.Rectangle; ghost: Phaser.GameObjects.Rectangle; name: Phaser.GameObjects.BitmapText; hp: () => number; shown: number } | null = null;
   private cardT = 0;
 
   constructor() {
@@ -72,7 +80,7 @@ export class HudScene extends Phaser.Scene {
     this.dlgName = text(this, dx + 10, dy + 4, 'MOTH', 'galmuri7', COLORS.cyan);
     this.dlgText = text(this, dx + 10, dy + 15, '', 'galmuri9', COLORS.uiText);
     this.dlgBox.add([this.dlgName, this.dlgText]);
-    this.dlgBox.setVisible(false);
+    this.dlgBox.setVisible(false).setDepth(320);
     this.dlgTw = new Typewriter(this.dlgText, 40);
     this.dlgTw.onChar = () => audio.play('type', { vol: 0.6 });
 
@@ -100,10 +108,17 @@ export class HudScene extends Phaser.Scene {
     t2.x = Math.round((GAME_W - t2.width) / 2);
     const line = this.add.rectangle(GAME_W / 2, 106, 0, 1, COLORS.cyan).setOrigin(0.5, 0.5);
     this.stageCard.add([line, t1, t2]);
-    this.cardT = 0;
+    this.cardT = this.game_.level.data.boss ? 99 : 0;
 
     this.comboNum = text(this, 0, 78, '', 'galmuri11b', COLORS.cyan).setVisible(false);
     this.comboLbl = text(this, 0, 94, 'HIT', 'galmuri7', COLORS.uiText).setVisible(false);
+
+    this.barTop = this.add.rectangle(0, 0, GAME_W, 26, 0x000000).setOrigin(0, 0).setDepth(300);
+    this.barBot = this.add.rectangle(0, GAME_H, GAME_W, 26, 0x000000).setOrigin(0, 0).setDepth(300);
+    this.barsK = 0;
+    this.barsOn = false;
+    this.card = null;
+    this.boss = null;
 
     this.input.keyboard!.on('keydown-SPACE', () => this.onConfirm());
     this.input.keyboard!.on('keydown-ENTER', () => this.onConfirm());
@@ -112,12 +127,8 @@ export class HudScene extends Phaser.Scene {
   private onConfirm(): void {
     if (this.clear) {
       audio.play('ui_select');
-      this.game_.cameras.main.fadeOut(600, 5, 3, 10);
-      this.game_.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-        this.scene.stop('Game');
-        this.scene.start('Title');
-      });
       this.clear = null;
+      this.game_.advanceStage();
       return;
     }
     if (this.logBox && this.logT > 0.4) this.closeLog();
@@ -145,6 +156,44 @@ export class HudScene extends Phaser.Scene {
     this.dlgName.setTint(line.who === 'MOTH' ? COLORS.cyan : line.who === 'ION' ? COLORS.amberHot : COLORS.acid);
     this.dlgTw.start(wrap(this, 'galmuri9', line.text, 272));
     this.dlgHold = 2.2 + line.text.length * 0.03;
+  }
+
+  letterbox(on: boolean): void {
+    this.barsOn = on;
+  }
+
+  nameCard(title: string, sub: string): void {
+    this.card?.destroy();
+    const c = this.add.container(0, 0).setDepth(310);
+    const t = text(this, 0, 104, title, 'galmuri11b', COLORS.magenta);
+    t.x = Math.round((GAME_W - t.width) / 2);
+    const st = text(this, 0, 124, sub, 'galmuri7', COLORS.uiText);
+    st.x = Math.round((GAME_W - st.width) / 2);
+    const line = this.add.rectangle(GAME_W / 2, 120, 160, 1, COLORS.magenta);
+    c.add([line, t, st]);
+    this.card = c;
+    this.cardLife = 3.2;
+    audio.play('lock', { pitch: 0.5 });
+  }
+
+  bossBar(show: boolean, name = '', hp: () => number = () => 1): void {
+    if (!show) {
+      if (this.boss) {
+        this.boss.frame.destroy();
+        this.boss.fill.destroy();
+        this.boss.ghost.destroy();
+        this.boss.name.destroy();
+      }
+      this.boss = null;
+      return;
+    }
+    const x = Math.round((GAME_W - 204) / 2);
+    const y = 18;
+    const frame = this.add.image(x, y, 'ui', 'bossbar').setOrigin(0, 0);
+    const ghost = this.add.rectangle(x + 2, y + 2, 200, 5, 0xffffff).setOrigin(0, 0);
+    const fill = this.add.rectangle(x + 2, y + 2, 200, 5, COLORS.magenta).setOrigin(0, 0);
+    const nm = text(this, x, y - 12, name, 'galmuri9', COLORS.magenta);
+    this.boss = { frame, fill, ghost, name: nm, hp, shown: 1 };
   }
 
   combo(n: number): void {
@@ -248,6 +297,25 @@ export class HudScene extends Phaser.Scene {
     });
     this.logCount.setText(`${g.stats.logs.length}/${Object.keys(LOGS).length}`);
     this.timer.setText(fmtTime(g.stats.time));
+
+    // cinematic letterbox
+    this.barsK += ((this.barsOn ? 1 : 0) - this.barsK) * Math.min(1, dt * 4);
+    this.barTop.y = Math.round(-26 + this.barsK * 26);
+    this.barBot.y = Math.round(GAME_H - this.barsK * 26);
+    if (this.card) {
+      this.cardLife -= dt;
+      this.card.setAlpha(Math.min(1, this.cardLife * 2) * (Math.floor(this.elapsed * 30) % 9 === 0 ? 0.5 : 1));
+      if (this.cardLife <= 0) {
+        this.card.destroy();
+        this.card = null;
+      }
+    }
+    if (this.boss) {
+      const v = Math.max(0, Math.min(1, this.boss.hp()));
+      this.boss.fill.width = Math.round(200 * v);
+      this.boss.shown += (v - this.boss.shown) * Math.min(1, dt * 2.5);
+      this.boss.ghost.width = Math.round(200 * Math.max(v, this.boss.shown));
+    }
 
     // combo counter
     if (this.comboT > 0) {

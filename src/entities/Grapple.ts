@@ -14,6 +14,8 @@ export interface AnchorPoint {
   readonly hookRadius?: number;
   /** Dynamic targets report when they stop being valid. */
   readonly alive?: boolean;
+  /** Anchor that moves (rope pivot follows it). */
+  readonly moving?: boolean;
 }
 
 export type GrappleState = 'idle' | 'flying' | 'attached' | 'zip' | 'retract';
@@ -66,6 +68,8 @@ export class Grapple {
 
   /** Enemy currently being zipped to. */
   zipTarget: AnchorPoint | null = null;
+  /** Anchor the rope is tied to (null for tile surfaces). */
+  attachedTo: AnchorPoint | null = null;
 
   /** Re-grapple: drop the current line so a new shot can leave this frame. */
   forceReady(): void {
@@ -171,6 +175,7 @@ export class Grapple {
       }
       if (hitAnchor) {
         this.attach(hitAnchor.x, hitAnchor.y, true, 0, 0, bodyX, bodyY);
+        this.attachedTo = hitAnchor;
         return;
       }
       if (hit) {
@@ -193,6 +198,10 @@ export class Grapple {
         this.state = 'retract';
         this.cooldown = HOOK.cooldown;
       }
+    } else if (this.state === 'attached' && this.attachedTo?.moving && this.rope.pivots.length) {
+      // tether drones drag the rope's root along with them
+      this.rope.pivots[0].x = this.hx = this.attachedTo.x;
+      this.rope.pivots[0].y = this.hy = this.attachedTo.y;
     } else if (this.state === 'zip' && this.zipTarget) {
       this.hx = this.zipTarget.x;
       this.hy = this.zipTarget.y;
@@ -213,6 +222,7 @@ export class Grapple {
   }
 
   private attach(x: number, y: number, anchor: boolean, nx: number, ny: number, bodyX: number, bodyY: number): void {
+    this.attachedTo = null;
     this.hx = x;
     this.hy = y;
     this.rope.attach(x, y, bodyX, bodyY);

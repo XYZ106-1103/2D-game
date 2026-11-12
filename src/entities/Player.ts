@@ -547,6 +547,10 @@ export class Player {
     }
   }
 
+  refreshAirDash(): void {
+    this.airDashes = 1;
+  }
+
   /** Reaction to our own hit landing (pogo, recoil, dash refresh). */
   onAttackLanded(r: HitResult, dirX: number, kind: HitKind): void {
     const b = this.body;

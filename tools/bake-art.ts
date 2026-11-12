@@ -10,6 +10,8 @@ import { buildProps } from './art/props.ts';
 import { buildFx } from './art/fx.ts';
 import { buildUi } from './art/ui.ts';
 import { trooperAnims, droneAnims, sentrySprites, combatFx } from './art/enemies.ts';
+import { marketTheme, towerTheme } from './art/themes.ts';
+import { buildBoss } from './art/boss.ts';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const OUT = join(ROOT, 'public/assets');
@@ -34,6 +36,7 @@ save('bg/far.png', farLayer());
 save('bg/mid.png', midLayer());
 save('bg/near.png', nearLayer());
 save('bg/fog.png', fogStrip());
+for (const [file, c] of Object.entries({ ...marketTheme(), ...towerTheme() })) save(`bg/${file}`, c);
 
 // enemies: trooper sheet (48×48 frames + anim table) and an atlas for the rest
 {
@@ -56,6 +59,7 @@ const enemyItems = [
 
 for (const [name, items, width] of [
   ['enemies', enemyItems, 512],
+  ['boss', buildBoss(), 1024],
   ['props', buildProps(), 256],
   ['fx', buildFx(), 256],
   ['ui', buildUi(), 256],

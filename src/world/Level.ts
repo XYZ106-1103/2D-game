@@ -25,6 +25,8 @@ const IDX = {
   backwall: (k: number) => (k < 8 ? 88 + k : 96 + (k - 8)),
 };
 
+export const CRUMBLE_TILE = 104;
+
 export interface Surface {
   x0: number;
   x1: number;
@@ -37,6 +39,7 @@ export class Level {
   readonly world: TileWorld;
   readonly surfaces: Surface[] = [];
   private maps: Phaser.Tilemaps.Tilemap[] = [];
+  mainLayer: Phaser.Tilemaps.TilemapLayer | null = null;
 
   constructor(data: LevelData) {
     this.data = data;
@@ -45,6 +48,7 @@ export class Level {
       switch (data.mat[i]) {
         case Mat.Concrete:
         case Mat.Steel:
+        case Mat.Crumble:
           cells[i] = Cell.Solid;
           break;
         case Mat.Glass:
@@ -84,7 +88,7 @@ export class Level {
 
   private isTop(x: number, y: number): boolean {
     const m = this.matAt(x, y);
-    const solid = m === Mat.Concrete || m === Mat.Steel || m === Mat.Glass || m === Mat.Catwalk;
+    const solid = m === Mat.Concrete || m === Mat.Steel || m === Mat.Glass || m === Mat.Catwalk || m === Mat.Crumble;
     return solid && this.matAt(x, y - 1) === Mat.Empty;
   }
 
@@ -121,6 +125,8 @@ export class Level {
       }
       case Mat.Steel:
         return IDX.steel(this.mask(x, y, m));
+      case Mat.Crumble:
+        return CRUMBLE_TILE;
       case Mat.Glass:
         return IDX.glass(this.mask(x, y, m));
       case Mat.Catwalk: {
@@ -163,7 +169,7 @@ export class Level {
       return layer;
     };
     make(back, DEPTH.backwall);
-    make(main, DEPTH.tiles);
+    this.mainLayer = make(main, DEPTH.tiles);
   }
 
   /** Hazard rail cells (for spark FX). */

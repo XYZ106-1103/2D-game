@@ -10,12 +10,33 @@ interface Track {
   bpm: number;
   chords: number[][]; // midi notes per bar
   bass: number[]; // root per bar
-  drums: boolean;
   arpPattern: number[];
+  /** 16th-step positions (0..15) for each drum voice; empty = none. */
+  kick: number[];
+  snare: number[];
+  hat: number[];
+  /** 1 = 16th-note arpeggio, 2 = 8ths, 4 = quarters. */
+  arpRate: number;
+  /** Bass: 'pulse' (8ths with octave pops) or 'long' (sustained). */
+  bassStyle: 'pulse' | 'long' | 'drive';
+  arpVol: number;
+  padVol: number;
 }
 
+const T = (t: Partial<Track> & Pick<Track, 'bpm' | 'chords' | 'bass'>): Track => ({
+  arpPattern: [0, 1, 2, 3, 2, 1, 2, 3],
+  kick: [],
+  snare: [],
+  hat: [],
+  arpRate: 2,
+  bassStyle: 'long',
+  arpVol: 0.03,
+  padVol: 0.012,
+  ...t,
+});
+
 const TRACKS: Record<string, Track> = {
-  title: {
+  title: T({
     bpm: 76,
     chords: [
       [57, 60, 64, 71],
@@ -24,10 +45,9 @@ const TRACKS: Record<string, Track> = {
       [55, 59, 62, 66],
     ],
     bass: [33, 29, 36, 31],
-    drums: false,
     arpPattern: [0, 2, 1, 3, 2, 1, 3, 2],
-  },
-  stage: {
+  }),
+  stage: T({
     bpm: 102,
     chords: [
       [57, 60, 64, 67],
@@ -36,9 +56,61 @@ const TRACKS: Record<string, Track> = {
       [52, 55, 59, 62],
     ],
     bass: [33, 29, 26, 28],
-    drums: true,
-    arpPattern: [0, 1, 2, 3, 2, 1, 2, 3],
-  },
+    kick: [0, 8, 10],
+    snare: [4, 12],
+    hat: [1, 3, 5, 7, 9, 11, 13, 15],
+    bassStyle: 'pulse',
+    arpVol: 0.035,
+  }),
+  market: T({
+    bpm: 94,
+    chords: [
+      [50, 53, 57, 60],
+      [46, 50, 53, 57],
+      [53, 57, 60, 64],
+      [48, 52, 55, 58],
+    ],
+    bass: [26, 34, 29, 24],
+    arpPattern: [0, 2, 3, 2, 1, 2, 3, 1],
+    kick: [0, 6, 10],
+    snare: [4, 12],
+    hat: [2, 6, 10, 14],
+    bassStyle: 'pulse',
+    arpVol: 0.03,
+  }),
+  tower: T({
+    bpm: 84,
+    chords: [
+      [52, 55, 59, 66],
+      [48, 52, 55, 59],
+      [45, 48, 52, 55],
+      [47, 51, 54, 57],
+    ],
+    bass: [28, 24, 33, 35],
+    arpPattern: [0, 3, 2, 3, 1, 3, 2, 3],
+    hat: [6, 14],
+    arpRate: 2,
+    bassStyle: 'long',
+    padVol: 0.014,
+  }),
+  boss: T({
+    bpm: 132,
+    chords: [
+      [48, 51, 55, 60],
+      [44, 48, 51, 56],
+      [46, 50, 53, 58],
+      [43, 47, 50, 55],
+    ],
+    bass: [24, 20, 22, 19],
+    arpPattern: [0, 1, 2, 3, 2, 1, 0, 2],
+    kick: [0, 4, 8, 12],
+    snare: [4, 12],
+    hat: [2, 6, 10, 14, 3, 11],
+    arpRate: 1,
+    bassStyle: 'drive',
+    arpVol: 0.028,
+    padVol: 0.01,
+  }),
 };
 
 export class AudioEngine {
@@ -373,6 +445,29 @@ export class AudioEngine {
         this.noiseBurst(t, 0.14, 0.4 * v, 'bandpass', 600, 2400, 1.2, dest, 0.01);
         this.tone('sine', 130, 60, t + 0.05, 0.12, 0.3 * v, dest);
         break;
+      case 'slam':
+        this.tone('sine', 90, 28, t, 0.5, 0.7 * v, dest);
+        this.noiseBurst(t, 0.45, 0.7 * v, 'lowpass', 1800, 120, 0.7, dest, 0.003);
+        this.noiseBurst(t, 0.8, 0.3 * v, 'lowpass', 600, 80, 0.7, verb, 0.01);
+        break;
+      case 'laser':
+        this.tone('sawtooth', 120, 90, t, 1.6, 0.12 * v, dest, 0.02);
+        this.tone('square', 240, 180, t, 1.6, 0.05 * v, dest, 0.02);
+        this.noiseBurst(t, 1.6, 0.25 * v, 'bandpass', 2400, 1800, 2, dest, 0.03);
+        break;
+      case 'roar':
+        this.tone('sawtooth', 60, 110, t, 1.4, 0.2 * v, dest, 0.2);
+        this.tone('sawtooth', 61.5, 113, t, 1.4, 0.16 * v, verb, 0.2);
+        this.noiseBurst(t, 1.6, 0.35 * v, 'lowpass', 400, 900, 1.2, dest, 0.3);
+        break;
+      case 'crumble':
+        this.noiseBurst(t, 0.25, 0.4 * v, 'lowpass', 900, 200, 0.8, dest);
+        this.tone('square', 90, 50, t, 0.15, 0.08 * v, dest);
+        break;
+      case 'steam':
+        this.noiseBurst(t, 0.9, 0.3 * v, 'highpass', 1800, 900, 0.6, dest, 0.05);
+        this.noiseBurst(t, 0.6, 0.15 * v, 'bandpass', 500, 300, 1, verb, 0.05);
+        break;
       case 'boot':
         this.tone('sine', 110, 880, t, 0.6, 0.08 * v, verb, 0.05);
         this.noiseBurst(t, 0.5, 0.06 * v, 'bandpass', 600, 4000, 3, dest, 0.2);
@@ -472,28 +567,31 @@ export class AudioEngine {
     // pad at bar start
     if (pos === 0) {
       for (const n of chord) {
-        for (const det of [-9, 9]) this.padVoice(NOTE(n), t, s16 * 16, det, out);
+        for (const det of [-9, 9]) this.padVoice(NOTE(n), t, s16 * 16, det, out, tr.padVol);
       }
     }
-    // arpeggio on 8ths
-    if (pos % 2 === 0) {
-      const idx = tr.arpPattern[(pos / 2) % tr.arpPattern.length];
-      const n = chord[idx % chord.length] + 12;
-      this.pluck(NOTE(n), t, s16 * 1.6, tr.drums ? 0.035 : 0.03, out);
+    // arpeggio
+    if (pos % tr.arpRate === 0) {
+      const idx = tr.arpPattern[(pos / tr.arpRate) % tr.arpPattern.length];
+      const oct = tr.arpRate === 1 && pos % 8 >= 4 ? 24 : 12;
+      const n = chord[idx % chord.length] + oct;
+      this.pluck(NOTE(n), t, s16 * 1.6 * tr.arpRate * 0.8, tr.arpVol, out);
     }
     // bass
     const root = tr.bass[bar];
-    if (tr.drums) {
+    if (tr.bassStyle === 'pulse') {
       if (pos % 2 === 0) this.bassVoice(NOTE(root + (pos % 8 === 6 ? 12 : 0)), t, s16 * 1.8, 0.11, out);
-      if (pos === 0 || pos === 8 || pos === 10) this.kick(t, out);
-      if (pos === 4 || pos === 12) this.snare(t, out);
-      if (pos % 2 === 1) this.hat(t, pos % 4 === 3 ? 0.05 : 0.025, out);
+    } else if (tr.bassStyle === 'drive') {
+      this.bassVoice(NOTE(root + (pos % 4 === 2 ? 12 : 0)), t, s16 * 0.9, 0.1, out);
     } else if (pos === 0 || pos === 10) {
       this.bassVoice(NOTE(root), t, s16 * 8, 0.09, out);
     }
+    if (tr.kick.includes(pos)) this.kick(t, out);
+    if (tr.snare.includes(pos)) this.snare(t, out);
+    if (tr.hat.includes(pos)) this.hat(t, pos % 4 === 3 ? 0.05 : 0.028, out);
   }
 
-  private padVoice(f: number, t: number, dur: number, detune: number, out: AudioNode): void {
+  private padVoice(f: number, t: number, dur: number, detune: number, out: AudioNode, vol = 0.012): void {
     const ctx = this.ctx!;
     const o = ctx.createOscillator();
     o.type = 'sawtooth';
@@ -506,7 +604,7 @@ export class AudioEngine {
     fl.frequency.linearRampToValueAtTime(600, t + dur);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.012, t + dur * 0.3);
+    g.gain.linearRampToValueAtTime(vol, t + dur * 0.3);
     g.gain.linearRampToValueAtTime(0.0001, t + dur * 1.02);
     o.connect(fl).connect(g);
     g.connect(out);

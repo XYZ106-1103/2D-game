@@ -341,6 +341,34 @@ function backwall(p: Plot, kind: number): void {
   }
 }
 
+/** Rusted grate block that gives way under weight. */
+function crumble(p: Plot, frame: number): void {
+  const R = RAMPS.rust;
+  for (let y = 0; y < T; y++) {
+    for (let x = 0; x < T; x++) {
+      let c = (x + y) % 4 === 0 ? R[0] : y % 4 === 1 ? R[1] : R[2];
+      if (x === 0 || y === 0) c = R[3];
+      if (x === 15 || y === 15) c = R[0];
+      if (y === 1 && x > 0 && x < 15) c = R[4];
+      p(x, y, c);
+    }
+  }
+  // cracks (more on the damaged frame)
+  const cracks = frame === 0 ? 4 : 9;
+  for (let i = 0; i < cracks; i++) {
+    let x = 2 + Math.floor(hash2(i, frame, 31) * 12);
+    for (let y = 3 + (i % 4); y < 14; y++) {
+      p(x, y, 0x120808);
+      if (hash2(x, y, i) > 0.6) x += hash2(y, x, i) > 0.5 ? 1 : -1;
+      x = Math.max(1, Math.min(14, x));
+    }
+  }
+  for (const xx of [3, 12]) {
+    p(xx, 3, RAMPS.yellow[2]);
+    p(xx, 4, RAMPS.yellow[1]);
+  }
+}
+
 export function buildTileset(): PixelCanvas {
   const cols = 16;
   const rows = 8;
@@ -362,6 +390,8 @@ export function buildTileset(): PixelCanvas {
   }
   for (let k = 0; k < 8; k++) backwall(at(8 + k, 5), k);
   for (let k = 0; k < 8; k++) backwall(at(k, 6), k + 8);
+  crumble(at(8, 6), 0);
+  crumble(at(9, 6), 1);
   return c;
 }
 

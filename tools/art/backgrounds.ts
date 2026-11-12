@@ -136,7 +136,7 @@ function towerTopY(t: Tower, lx: number, base: number): number {
 }
 
 /** Generic skyline layer. */
-function skyline(opts: {
+export function skyline(opts: {
   width: number;
   height: number;
   base: number;

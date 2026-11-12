@@ -296,6 +296,21 @@ function clutter(out: Item[]): void {
     for (const x of [1, 9]) for (let y = 0; y < 9; y++) c.set(x, y, S[3]);
     out.push({ name: 'railing', c });
   }
+  // steam vent grate (floor)
+  {
+    const c = new PixelCanvas(18, 7);
+    for (let y = 0; y < 7; y++) {
+      for (let x = 0; x < 18; x++) {
+        let col = y === 0 ? S[5] : y === 6 ? S[1] : x % 3 === 0 ? S[1] : S[3];
+        if (y > 1 && y < 5 && x % 3 !== 0) col = 0x0a0612;
+        c.set(x, y, col);
+      }
+    }
+    c.set(1, 1, RAMPS.yellow[2]);
+    c.set(16, 1, RAMPS.yellow[2]);
+    c.outline(INK);
+    out.push({ name: 'vent', c });
+  }
   // exit elevator gate
   {
     const c = new PixelCanvas(34, 46);

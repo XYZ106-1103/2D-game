@@ -8,6 +8,7 @@ export const Mat = {
   Glass: 3,
   Catwalk: 4,
   Rail: 5,
+  Crumble: 6,
 } as const;
 export type MatType = (typeof Mat)[keyof typeof Mat];
 
@@ -33,10 +34,34 @@ export interface EnemySpawn {
   y: number;
 }
 
+export interface MoverDef {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  period: number; // seconds for a full round trip
+  phase: number;
+}
+
+export interface VentDef {
+  x: number; // centre
+  y: number; // floor (bottom)
+  h: number; // jet height in px
+  on: number;
+  off: number;
+  phase: number;
+}
+
 export interface LevelData {
   id: string;
   title: string;
   subtitle: string;
+  theme: 'rooftops' | 'market' | 'tower';
+  music: 'stage' | 'market' | 'tower' | 'boss';
+  rain: number;
+  boss: boolean;
+  movers: MoverDef[];
+  vents: VentDef[];
   w: number;
   h: number;
   mat: Uint8Array;
@@ -68,6 +93,12 @@ export class LevelBuilder {
       id,
       title,
       subtitle,
+      theme: 'rooftops',
+      music: 'stage',
+      rain: 1,
+      boss: false,
+      movers: [],
+      vents: [],
       spawn: { x: 0, y: 0 },
       anchors: [],
       checkpoints: [],
@@ -139,6 +170,29 @@ export class LevelBuilder {
   trigger(tx: number, ty: number, tw: number, th: number, dialog: string): this {
     this.data.triggers.push({ x: tx * TILE, y: ty * TILE, w: tw * TILE, h: th * TILE, dialog });
     return this;
+  }
+
+  setTheme(theme: LevelData['theme'], music: LevelData['music'], rain = 1): this {
+    this.data.theme = theme;
+    this.data.music = music;
+    this.data.rain = rain;
+    return this;
+  }
+
+  /** Anchor drone shuttling between two tile positions. */
+  mover(tx0: number, ty0: number, tx1: number, ty1: number, period = 4, phase = 0): this {
+    this.data.movers.push({ x0: tx0 * TILE + 8, y0: ty0 * TILE + 8, x1: tx1 * TILE + 8, y1: ty1 * TILE + 8, period, phase });
+    return this;
+  }
+
+  /** Steam vent on the floor of row ty+1 blowing upward `h` tiles. */
+  vent(tx: number, ty: number, h: number, on = 1.6, off = 1.2, phase = 0): this {
+    this.data.vents.push({ x: tx * TILE + 8, y: (ty + 1) * TILE, h: h * TILE, on, off, phase });
+    return this;
+  }
+
+  crumble(x0: number, x1: number, y: number): this {
+    return this.fill(x0, y, x1, y, Mat.Crumble);
   }
 
   /** Enemy spawn. Drones float at the tile centre; ground units stand on row ty+1. */

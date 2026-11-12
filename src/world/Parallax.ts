@@ -2,6 +2,78 @@ import Phaser from 'phaser';
 import { DEPTH, GAME_H, GAME_W } from '../config.ts';
 import { COLORS } from '../art/palette.ts';
 
+export type ThemeName = 'rooftops' | 'market' | 'tower';
+
+interface LayerDef {
+  key: string;
+  depth: number;
+  fx: number;
+  fy: number;
+  baseY: number;
+  tile?: boolean;
+  baseX?: number;
+  drift?: number;
+}
+
+interface ThemeDef {
+  layers: LayerDef[];
+  cars: number; // traffic density multiplier (0 = none)
+  beams: boolean;
+  blinkers: boolean;
+  fog: { depth: number; fx: number; fy: number; baseY: number; speed: number; tint: number; alpha: number }[];
+}
+
+export const THEMES: Record<ThemeName, ThemeDef> = {
+  rooftops: {
+    layers: [
+      { key: 'bg-sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-spire', depth: DEPTH.spire, fx: 0.03, fy: 0.02, baseY: 30, tile: false, baseX: 300 },
+      { key: 'bg-far', depth: DEPTH.far, fx: 0.1, fy: 0.06, baseY: 40 },
+      { key: 'bg-mid', depth: DEPTH.mid, fx: 0.25, fy: 0.14, baseY: 70 },
+      { key: 'bg-near', depth: DEPTH.near, fx: 0.5, fy: 0.32, baseY: 110 },
+    ],
+    cars: 1,
+    beams: true,
+    blinkers: true,
+    fog: [
+      { depth: DEPTH.fogBack, fx: 0.4, fy: 0.3, baseY: 190, speed: 6, tint: 0x6a3a8a, alpha: 0.35 },
+      { depth: DEPTH.fogBack, fx: 0.6, fy: 0.5, baseY: 240, speed: -9, tint: 0x3a4a8a, alpha: 0.3 },
+      { depth: DEPTH.fogFront, fx: 1.15, fy: 1.0, baseY: 0, speed: 14, tint: 0x4a3a7a, alpha: 0.22 },
+    ],
+  },
+  market: {
+    layers: [
+      { key: 'bg-market_sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-market_far', depth: DEPTH.far, fx: 0.1, fy: 0.05, baseY: 10 },
+      { key: 'bg-market_mid', depth: DEPTH.mid, fx: 0.24, fy: 0.12, baseY: 20 },
+      { key: 'bg-market_near', depth: DEPTH.near, fx: 0.5, fy: 0.28, baseY: 40 },
+    ],
+    cars: 0.6,
+    beams: false,
+    blinkers: false,
+    fog: [
+      { depth: DEPTH.fogBack, fx: 0.4, fy: 0.3, baseY: 180, speed: 5, tint: 0x8a3a3a, alpha: 0.3 },
+      { depth: DEPTH.fogBack, fx: 0.6, fy: 0.45, baseY: 230, speed: -7, tint: 0x7a2a5a, alpha: 0.3 },
+      { depth: DEPTH.fogFront, fx: 1.15, fy: 1.0, baseY: 0, speed: 10, tint: 0x6a2a3a, alpha: 0.22 },
+    ],
+  },
+  tower: {
+    layers: [
+      { key: 'bg-tower_sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-tower_far', depth: DEPTH.far, fx: 0.05, fy: 0.02, baseY: 60 },
+      { key: 'bg-tower_clouds', depth: DEPTH.mid - 0.5, fx: 0.1, fy: 0.05, baseY: 150, drift: 4 },
+      { key: 'bg-tower_mid', depth: DEPTH.mid, fx: 0.18, fy: 0.08, baseY: 120 },
+    ],
+    cars: 0,
+    beams: true,
+    blinkers: false,
+    fog: [
+      { depth: DEPTH.fogBack, fx: 0.3, fy: 0.12, baseY: 200, speed: 12, tint: 0x6a70a0, alpha: 0.28 },
+      { depth: DEPTH.fogFront, fx: 1.2, fy: 1.0, baseY: 0, speed: 24, tint: 0x8890c0, alpha: 0.16 },
+    ],
+  },
+};
+
 interface Layer {
   obj: Phaser.GameObjects.TileSprite | Phaser.GameObjects.Image;
   fx: number;
@@ -9,6 +81,7 @@ interface Layer {
   baseY: number;
   baseX: number;
   tile: boolean;
+  drift: number;
 }
 
 interface Car {
@@ -34,22 +107,18 @@ export class Parallax {
   private time = 0;
   private worldH: number;
 
-  constructor(scene: Phaser.Scene, worldH: number) {
+  private drift = 0;
+
+  constructor(scene: Phaser.Scene, worldH: number, themeName: ThemeName = 'rooftops') {
+    const theme = THEMES[themeName];
     this.worldH = worldH;
-    const add = (key: string, depth: number, fx: number, fy: number, baseY: number, tile = true, baseX = 0) => {
-      const tex = scene.textures.get(key).getSourceImage() as HTMLImageElement;
-      const obj = tile
-        ? scene.add.tileSprite(0, 0, GAME_W, tex.height, key).setOrigin(0, 0)
-        : scene.add.image(0, 0, key).setOrigin(0, 0);
-      obj.setScrollFactor(0).setDepth(depth);
-      this.layers.push({ obj, fx, fy, baseY, baseX, tile });
-      return obj;
-    };
-    add('bg-sky', DEPTH.sky, 0, 0, 0, false);
-    add('bg-spire', DEPTH.spire, 0.03, 0.02, 30, false, 300);
-    add('bg-far', DEPTH.far, 0.1, 0.06, 40);
-    add('bg-mid', DEPTH.mid, 0.25, 0.14, 70);
-    add('bg-near', DEPTH.near, 0.5, 0.32, 110);
+    for (const L of theme.layers) {
+      const tile = L.tile ?? true;
+      const tex = scene.textures.get(L.key).getSourceImage() as HTMLImageElement;
+      const obj = tile ? scene.add.tileSprite(0, 0, GAME_W, tex.height, L.key).setOrigin(0, 0) : scene.add.image(0, 0, L.key).setOrigin(0, 0);
+      obj.setScrollFactor(0).setDepth(L.depth);
+      this.layers.push({ obj, fx: L.fx, fy: L.fy, baseY: L.baseY, baseX: L.baseX ?? 0, tile, drift: L.drift ?? 0 });
+    }
 
     // traffic lanes
     const lanes = [
@@ -59,7 +128,7 @@ export class Parallax {
       { y: 95, fx: 0.32, fy: 0.18, v: -62, depth: DEPTH.carsMid, n: 2, alpha: 0.85 },
     ];
     for (const lane of lanes) {
-      for (let i = 0; i < lane.n; i++) {
+      for (let i = 0; i < Math.round(lane.n * theme.cars); i++) {
         const img = scene.add.image(0, 0, 'props', `car_${(i + lane.n) % 3}`).setScrollFactor(0).setDepth(lane.depth).setAlpha(lane.alpha);
         img.setFlipX(lane.v < 0);
         const glow = scene.add
@@ -74,7 +143,7 @@ export class Parallax {
     }
 
     // searchlight beams sweeping from the far city
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < (theme.beams ? 3 : 0); i++) {
       const img = scene.add
         .image(0, 0, 'fx', 'cone')
         .setScrollFactor(0)
@@ -88,17 +157,13 @@ export class Parallax {
     }
 
     // aviation blinkers on distant towers
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < (theme.blinkers ? 10 : 0); i++) {
       const img = scene.add.image(0, 0, 'fx', 'px2').setScrollFactor(0).setDepth(DEPTH.far).setTint(COLORS.crimsonHot).setBlendMode(Phaser.BlendModes.ADD);
       this.blinkers.push({ img, x: Math.random() * 960, y: 60 + Math.random() * 70, fx: 0.1, fy: 0.06, phase: Math.random() * 3 });
     }
 
     // fog banks
-    const fogDefs = [
-      { depth: DEPTH.fogBack, fx: 0.4, fy: 0.3, baseY: 190, speed: 6, tint: 0x6a3a8a, alpha: 0.35 },
-      { depth: DEPTH.fogBack, fx: 0.6, fy: 0.5, baseY: 240, speed: -9, tint: 0x3a4a8a, alpha: 0.3 },
-      { depth: DEPTH.fogFront, fx: 1.15, fy: 1.0, baseY: 0, speed: 14, tint: 0x4a3a7a, alpha: 0.22 },
-    ];
+    const fogDefs = theme.fog;
     for (const f of fogDefs) {
       const obj = scene.add.tileSprite(0, 0, GAME_W, 64, 'bg-fog').setOrigin(0, 0).setScrollFactor(0).setDepth(f.depth).setTint(f.tint).setAlpha(f.alpha);
       this.fog.push({ obj, fx: f.fx, fy: f.fy, baseY: f.baseY, speed: f.speed, off: Math.random() * 500 });
@@ -107,11 +172,12 @@ export class Parallax {
 
   update(dt: number, camX: number, camY: number): void {
     this.time += dt;
+    this.drift += dt;
     for (const l of this.layers) {
       const y = Math.round(l.baseY - camY * l.fy);
       if (l.tile) {
         const ts = l.obj as Phaser.GameObjects.TileSprite;
-        ts.tilePositionX = Math.round(camX * l.fx);
+        ts.tilePositionX = Math.round(camX * l.fx + this.drift * l.drift);
         ts.y = y;
       } else {
         l.obj.x = Math.round(l.baseX - camX * l.fx);

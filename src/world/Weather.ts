@@ -29,12 +29,15 @@ export class Weather {
   private flashCb: (a: number) => void;
   private thunderCb: () => void;
 
-  constructor(scene: Phaser.Scene, surfaces: Surface[], flash: (a: number) => void, thunder: () => void) {
+  private density: number;
+
+  constructor(scene: Phaser.Scene, surfaces: Surface[], flash: (a: number) => void, thunder: () => void, density = 1) {
+    this.density = density;
     this.surfaces = surfaces;
     this.flashCb = flash;
     this.thunderCb = thunder;
     LAYERS.forEach((L, li) => {
-      for (let i = 0; i < L.n; i++) {
+      for (let i = 0; i < Math.round(L.n * density); i++) {
         const img = scene.add.image(0, 0, 'fx', L.frame).setScrollFactor(0).setDepth(L.depth).setAlpha(L.alpha).setTint(L.tint);
         img.setRotation(-this.wind);
         this.drops.push({ img, x: Math.random() * (GAME_W + 60), y: Math.random() * GAME_H, v: L.speed[0] + Math.random() * (L.speed[1] - L.speed[0]), layer: li });
@@ -65,7 +68,7 @@ export class Weather {
     }
 
     // splashes on visible rooftop surfaces
-    this.splashAcc += dt * 55;
+    this.splashAcc += dt * 55 * this.density;
     while (this.splashAcc > 1) {
       this.splashAcc -= 1;
       const s = this.surfaces[Math.floor(Math.random() * this.surfaces.length)];
