@@ -1,0 +1,26 @@
+{
+  "name": "tetherfall",
+  "private": true,
+  "version": "0.1.0",
+  "description": "TETHERFALL — a cyberpunk pixel-art grappling action platformer (Phaser 3 + TypeScript + Vite)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "typecheck": "tsc --noEmit",
+    "test": "node tests/rope.test.ts",
+    "art": "node tools/bake-art.ts",
+    "fonts": "node tools/bake-fonts.ts",
+    "assets": "node tools/bake-fonts.ts && node tools/bake-art.ts"
+  },
+  "dependencies": {
+    "phaser": "3.90.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "galmuri": "2.40.3",
+    "typescript": "5.9.3",
+    "vite": "7.3.8"
+  }
+}
