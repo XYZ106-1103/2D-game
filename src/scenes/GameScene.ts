@@ -4,7 +4,7 @@ import { COLORS } from '../art/palette.ts';
 import { audio } from '../audio/AudioEngine.ts';
 import { Input } from '../core/Input.ts';
 import { clamp } from '../core/math.ts';
-import { loadProgress, saveProgress, settings } from '../core/Settings.ts';
+import { loadProgress, saveProgress, settings, unlockStage } from '../core/Settings.ts';
 import { Player } from '../entities/Player.ts';
 import { Grapple, type AnchorPoint } from '../entities/Grapple.ts';
 import { CameraDirector } from '../fx/CameraDirector.ts';
@@ -98,6 +98,8 @@ export class GameScene extends Phaser.Scene implements Juice {
   private hookTargets: AnchorPoint[] = [];
   private hud!: HudScene;
   private dev = false;
+  private heartT = 0;
+  private musicHeat = 0;
   private exitT = 0;
   stageIndex = 0;
   gimmicks!: Gimmicks;
@@ -181,6 +183,7 @@ export class GameScene extends Phaser.Scene implements Juice {
       (a) => this.flash(a),
       () => audio.play('thunder', { vol: 0.7 }),
       data.rain,
+      data.theme === 'tower',
     );
 
     this.crosshair = this.add.image(0, 0, 'fx', 'cross_idle').setScrollFactor(0).setDepth(DEPTH.cursor);
@@ -239,6 +242,7 @@ export class GameScene extends Phaser.Scene implements Juice {
   private cleanup(): void {
     this.game.events.off(Phaser.Core.Events.BLUR, this.autoPause, this);
     this.controls.destroy();
+    audio.intensity = 0;
     this.combat?.destroy();
     this.gimmicks?.destroy();
     this.boss?.destroy();
@@ -641,6 +645,7 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.particles.ring(this.exit.x, this.exit.y - 20, COLORS.acid);
     this.flash(0.3);
     const next = this.stageIndex + 1;
+    unlockStage(Math.min(next, STAGES.length - 1));
     if (next < STAGES.length) saveProgress({ level: '', stage: next, checkpoint: 0, logs: [...this.stats.logs] });
     else saveProgress(null);
     this.time.delayedCall(900, () => this.hud?.showClear(this.stats));
@@ -674,6 +679,31 @@ export class GameScene extends Phaser.Scene implements Juice {
     // stronger bloom while fast — "energy" feel
     const sp = clamp(this.player.speed / 500, 0, 1);
     this.post.bloom = 0.85 + sp * 0.35;
+    // low health: pulsing red edges + heartbeat
+    const low = this.state === 'play' && this.player.hp <= 1 && !this.player.dead;
+    const beat = Math.pow(Math.max(0, Math.sin(this.elapsed * 7)), 6);
+    this.post.danger = low ? 0.35 + beat * 0.45 : Math.max(0, this.post.danger - dt * 2);
+    if (low) {
+      this.heartT -= dt;
+      if (this.heartT <= 0) {
+        this.heartT = 0.9;
+        audio.heartbeat(0.8);
+      }
+    }
+    // dynamic music: layer in combat percussion when enemies are engaged
+    let engaged = this.boss?.active && !this.boss.defeated ? 1 : 0;
+    if (!engaged) {
+      const p = this.player;
+      for (const e of this.combat.enemies) {
+        if (!e.alive || e.state === 'patrol') continue;
+        if (Math.abs(e.x - p.x) < 260 && Math.abs(e.y - p.y) < 180) {
+          engaged = 1;
+          break;
+        }
+      }
+    }
+    this.musicHeat += ((engaged ? 1 : 0) - this.musicHeat) * Math.min(1, dt * (engaged ? 2 : 0.5));
+    audio.intensity = this.musicHeat;
   }
 
   private devKeys(): void {

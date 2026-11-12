@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { DEPTH, HOOK } from '../config.ts';
 import { RAMPS } from '../art/palette.ts';
 import { pointSegDist, RAD } from '../core/math.ts';
+import { settings } from '../core/Settings.ts';
 import { Rope } from '../physics/Rope.ts';
 import type { TileWorld } from '../physics/TileWorld.ts';
 
@@ -95,8 +96,9 @@ export class Grapple {
       if (d > HOOK.maxLen + 6 || d < 4) continue;
       const cos = (ax * ux + ay * uy) / d;
       const ang = Math.acos(Math.max(-1, Math.min(1, cos))) / RAD;
-      const nearCursor = Math.hypot(a.x - tx, a.y - ty) < HOOK.assistRadius + (a.hookRadius ?? 0);
-      if (ang > HOOK.assistAngleDeg && !nearCursor) continue;
+      const assist = settings.assist ? 1 : 0.35;
+      const nearCursor = Math.hypot(a.x - tx, a.y - ty) < (HOOK.assistRadius + (a.hookRadius ?? 0)) * assist;
+      if (ang > HOOK.assistAngleDeg * assist && !nearCursor) continue;
       if (!world.clear(fx, fy, a.x, a.y)) continue;
       // enemies slightly preferred: the zip strike is the sharper tool
       const score = (nearCursor ? ang * 0.25 : ang) * (a.isEnemy ? 0.8 : 1);

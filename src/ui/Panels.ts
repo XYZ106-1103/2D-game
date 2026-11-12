@@ -14,7 +14,7 @@ export class OptionsPanel {
 
   constructor(scene: Phaser.Scene, onClose: () => void) {
     const w = 236;
-    const h = 150;
+    const h = 165;
     const x = Math.round((GAME_W - w) / 2);
     const y = 62;
     this.root = scene.add.container(0, 0).setDepth(200);
@@ -29,7 +29,7 @@ export class OptionsPanel {
         audio.play('ui_move');
       },
     });
-    const tog = (k: 'shake' | 'flash', label: string) => ({
+    const tog = (k: 'shake' | 'flash' | 'assist', label: string) => ({
       label: () => `${label}  ${settings[k] ? UI_TEXT.on : UI_TEXT.off}`,
       adjust: () => {
         settings[k] = !settings[k];
@@ -47,6 +47,7 @@ export class OptionsPanel {
         vol('sfx', UI_TEXT.sfx),
         tog('shake', UI_TEXT.shake),
         tog('flash', UI_TEXT.flash),
+        tog('assist', UI_TEXT.assist),
         {
           label: UI_TEXT.fullscreen,
           action: () => {

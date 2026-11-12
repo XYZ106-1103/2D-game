@@ -17,6 +17,7 @@ uniform float uFlash;
 uniform float uVignette;
 uniform float uDesat;
 uniform float uGrade;
+uniform float uDanger;
 
 varying vec2 outTexCoord;
 
@@ -75,6 +76,10 @@ void main() {
 
   lum = dot(col, vec3(0.299, 0.587, 0.114));
   col = mix(col, vec3(lum) * vec3(0.9, 0.95, 1.1), uDesat);
+  // low-health pulse: edges bleed red
+  float edge = 1.0 - smoothstep(0.75, 0.2, length(d * vec2(1.0, 0.75)));
+  edge = floor(edge * 5.0 + dth) / 5.0;
+  col = mix(col, col * vec3(1.15, 0.3, 0.38) + vec3(0.12, 0.0, 0.02), uDanger * edge);
   col = mix(col, vec3(1.0), uFlash);
   gl_FragColor = vec4(col, 1.0);
 }
@@ -87,6 +92,7 @@ export class NeonPostFX extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
   vignette = 0.55;
   desat = 0;
   grade = 1;
+  danger = 0;
 
   constructor(game: Phaser.Game) {
     super({ game, name: 'NeonPostFX', fragShader: FRAG });
@@ -101,5 +107,6 @@ export class NeonPostFX extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
     this.set1f('uVignette', this.vignette);
     this.set1f('uDesat', this.desat);
     this.set1f('uGrade', this.grade);
+    this.set1f('uDanger', this.danger);
   }
 }

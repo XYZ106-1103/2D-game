@@ -41,7 +41,7 @@ export function buildLevel1(): LevelData {
 
   // --- E. Glass district: hook the steel beam, not the glass ---------------------
   L.building(85, 124, 41);
-  L.rail(86, 123, 40);
+  L.rail(86, 121, 40);
   L.fill(92, 25, 95, 39, Mat.Glass);
   L.fill(104, 21, 107, 39, Mat.Glass);
   L.fill(116, 24, 119, 39, Mat.Glass);
@@ -55,7 +55,7 @@ export function buildLevel1(): LevelData {
   L.enemy('sentry', 106, 20).enemy('drone', 98, 20).enemy('drone', 114, 17);
 
   // --- F. Tower climb: steel ledges + nodes, reel and chain ------------------------
-  L.building(125, 134, 26);
+  L.building(122, 134, 26);
   L.checkpoint(127, 25);
   L.building(137, 146, 7);
   L.fill(134, 21, 136, 21, Mat.Steel);

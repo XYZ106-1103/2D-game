@@ -65,6 +65,7 @@ export class Archivist {
   private slamArm = 0;
   private slamX = 0;
   private laserAng = 0;
+  private laserHit = false;
   private attackIdx = 0;
   private elecT = 0;
   private elecState: 'off' | 'warn' | 'on' = 'off';
@@ -300,7 +301,9 @@ export class Archivist {
         break;
       case 'laser_charge':
         this.moveTo(this.arenaW / 2 + (p.x < this.arenaW / 2 ? 90 : -90), 82, 1.2, dt);
-        this.laserAng = Math.atan2(p.y - 4 - this.y, p.x - this.x);
+        // track while charging, then freeze for the last beat (dodge window)
+        if (this.stateT < 0.6) this.laserAng = Math.atan2(p.y - 4 - this.y, p.x - this.x);
+        this.laserHit = false;
         if (Math.random() < 0.6) {
           const a = rand(0, Math.PI * 2);
           this.g.particles.emit(this.x + Math.cos(a) * 40, this.y + Math.sin(a) * 40, { frame: 'px2', speed: [140, 180], angle: (a * 180) / Math.PI + 180, spread: 4, life: [0.22, 0.25], tint: [COLORS.magenta, COLORS.white], add: true });
@@ -318,9 +321,13 @@ export class Archivist {
         let d = want - this.laserAng;
         while (d > Math.PI) d -= Math.PI * 2;
         while (d < -Math.PI) d += Math.PI * 2;
-        this.laserAng += Math.max(-0.75 * dt * speedK, Math.min(0.75 * dt * speedK, d));
+        const turn = 0.4 * dt * speedK;
+        this.laserAng += Math.max(-turn, Math.min(turn, d));
         const [ex, ey] = this.laserEnd();
-        if (this.pointSegDist(p.x, p.y - 4, this.x, this.y, ex, ey) < 7) this.hurtPlayer(this.x);
+        if (!this.laserHit && this.pointSegDist(p.x, p.y - 4, this.x, this.y, ex, ey) < 6 && p.invulnT <= 0) {
+          this.laserHit = true;
+          this.hurtPlayer(this.x);
+        }
         if (Math.random() < 0.8) this.g.particles.sparks(ex, ey, -90, 160, 2, [COLORS.magenta, COLORS.white]);
         if (this.stateT > 1.7) this.setState('idle');
         break;
@@ -537,7 +544,7 @@ export class Archivist {
         const y = Math.round(this.y + ((ey - this.y) * i) / n);
         if (!firing) {
           if (i % 4 < 2) {
-            g.fillStyle(RAMPS.crimson[5], 0.6);
+            g.fillStyle(this.stateT > 0.6 ? 0xffffff : RAMPS.crimson[5], this.stateT > 0.6 ? 0.85 : 0.6);
             g.fillRect(x, y, 1, 1);
           }
           continue;

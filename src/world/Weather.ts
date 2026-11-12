@@ -21,6 +21,9 @@ export class Weather {
   private drops: Drop[] = [];
   private splashes: { img: Phaser.GameObjects.Image; t: number }[] = [];
   private wind = -0.16; // dx per dy
+  private gusts = false;
+  private gustT = 2;
+  private scene: Phaser.Scene;
   private lastCamX = 0;
   private lastCamY = 0;
   private surfaces: Surface[];
@@ -31,7 +34,10 @@ export class Weather {
 
   private density: number;
 
-  constructor(scene: Phaser.Scene, surfaces: Surface[], flash: (a: number) => void, thunder: () => void, density = 1) {
+  constructor(scene: Phaser.Scene, surfaces: Surface[], flash: (a: number) => void, thunder: () => void, density = 1, windy = false) {
+    this.scene = scene;
+    this.gusts = windy;
+    if (windy) this.wind = -0.42;
     this.density = density;
     this.surfaces = surfaces;
     this.flashCb = flash;
@@ -86,6 +92,17 @@ export class Weather {
       const f = Math.min(3, Math.floor((1 - sp.t / 0.2) * 4));
       sp.img.setFrame(`splash_${f}`);
       if (sp.t <= 0) sp.img.setVisible(false);
+    }
+
+    // high-altitude wind gusts: long pale streaks racing across the screen
+    if (this.gusts) {
+      this.gustT -= dt;
+      if (this.gustT <= 0) {
+        this.gustT = 0.05 + Math.random() * 0.12;
+        const y = Math.random() * GAME_H;
+        const img = this.scene.add.image(GAME_W + 20, y, 'fx', 'speedline').setScrollFactor(0).setDepth(DEPTH.rainFront).setTint(0xc8d4ff).setAlpha(0.35).setFlipX(true).setScale(2 + Math.random() * 3, 1);
+        this.scene.tweens.add({ targets: img, x: -60, duration: 380 + Math.random() * 300, onComplete: () => img.destroy() });
+      }
     }
 
     // distant lightning

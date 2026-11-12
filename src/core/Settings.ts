@@ -6,12 +6,31 @@ export interface SettingsData {
   sfx: number;
   shake: boolean;
   flash: boolean;
+  assist: boolean;
 }
 
 const KEY = 'tetherfall.settings.v1';
 const PROGRESS = 'tetherfall.progress.v1';
 
-const defaults: SettingsData = { master: 0.8, music: 0.6, sfx: 0.8, shake: true, flash: true };
+const defaults: SettingsData = { master: 0.8, music: 0.6, sfx: 0.8, shake: true, flash: true, assist: true };
+const UNLOCK = 'tetherfall.unlocked.v1';
+
+/** Highest stage index the player has reached (stage select). */
+export function unlockedStage(): number {
+  try {
+    return Number(localStorage.getItem(UNLOCK) ?? 0) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function unlockStage(i: number): void {
+  try {
+    if (i > unlockedStage()) localStorage.setItem(UNLOCK, String(i));
+  } catch {
+    /* ignore */
+  }
+}
 
 function load(): SettingsData {
   try {

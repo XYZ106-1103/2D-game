@@ -11,7 +11,9 @@ import { Menu } from '../ui/Menu.ts';
 import { ControlsPanel, OptionsPanel } from '../ui/Panels.ts';
 import { text } from '../ui/Ui.ts';
 import { UI_TEXT } from '../data/story.ts';
-import { loadProgress, saveProgress, settings } from '../core/Settings.ts';
+import { loadProgress, saveProgress, settings, unlockedStage } from '../core/Settings.ts';
+import { STAGE_NAMES } from '../world/levels/index.ts';
+import { panel } from '../ui/Ui.ts';
 import type { NeonPostFX } from '../fx/NeonPostFX.ts';
 import type { PlayerSheet } from '../entities/Player.ts';
 
@@ -116,6 +118,7 @@ export class TitleScene extends Phaser.Scene {
     this.menu = new Menu(this, 44, 150, [
       { label: UI_TEXT.newGame, action: () => this.go(false) },
       { label: UI_TEXT.continue, action: () => this.go(true), disabled: !progress },
+      { label: UI_TEXT.stageSelect, action: () => this.openStageSelect(), disabled: unlockedStage() < 1 },
       { label: UI_TEXT.controls, action: () => this.openOverlay('controls') },
       { label: UI_TEXT.options, action: () => this.openOverlay('options') },
     ]);
@@ -139,7 +142,38 @@ export class TitleScene extends Phaser.Scene {
     this.cameras.main.ignore(this.overlay.root);
   }
 
-  private go(cont: boolean): void {
+  private openStageSelect(): void {
+    if (!this.menu) return;
+    this.menu.setVisible(false);
+    const root = this.add.container(0, 0).setDepth(200);
+    const w = 200;
+    const h = 34 + STAGE_NAMES.length * 15;
+    const x = Math.round((GAME_W - w) / 2);
+    const y = 96;
+    root.add(panel(this, x, y, w, h));
+    root.add(text(this, x + 12, y + 7, UI_TEXT.stageSelect, 'galmuri11b', COLORS.cyan));
+    const max = unlockedStage();
+    let sub: Menu | null = null;
+    const close = () => {
+      this.events.once('postupdate', () => {
+        sub?.destroy();
+        root.destroy();
+        this.menu?.setVisible(true);
+      });
+    };
+    sub = new Menu(
+      this,
+      x + 20,
+      y + 28,
+      STAGE_NAMES.map((n, i) => ({ label: `${i + 1}. ${i <= max ? n : '???'}`, disabled: i > max, action: () => this.go(false, i) })),
+      { width: w - 44, spacing: 15 },
+    );
+    sub.onBack = close;
+    root.add(sub.container);
+    this.cameras.main.ignore(root);
+  }
+
+  private go(cont: boolean, stage?: number): void {
     if (this.leaving) return;
     this.leaving = true;
     if (!cont) saveProgress(null);
@@ -149,6 +183,10 @@ export class TitleScene extends Phaser.Scene {
     this.uiCam.fadeOut(700, 5, 3, 10);
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       if (cont) this.scene.start('Game', { continue: true });
+      else if (stage !== undefined && stage > 0) {
+        this.registry.set('run', { time: 0, deaths: 0, kills: 0, bestCombo: 0, logs: [] });
+        this.scene.start('Game', { stage });
+      }
       else this.scene.start('Intro');
     });
   }

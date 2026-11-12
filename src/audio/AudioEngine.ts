@@ -134,6 +134,8 @@ export class AudioEngine {
   private lastPlay = new Map<string, number>();
 
   volumes = { master: 0.8, music: 0.55, sfx: 0.8 };
+  /** 0..1 combat intensity: layers in extra percussion and a counter-line. */
+  intensity = 0;
 
   get ready(): boolean {
     return !!this.ctx && this.ctx.state === 'running';
@@ -589,6 +591,24 @@ export class AudioEngine {
     if (tr.kick.includes(pos)) this.kick(t, out);
     if (tr.snare.includes(pos)) this.snare(t, out);
     if (tr.hat.includes(pos)) this.hat(t, pos % 4 === 3 ? 0.05 : 0.028, out);
+    // combat layer: driving 16th hats, extra kicks and a low counter-line
+    const k = this.intensity;
+    if (k > 0.3) {
+      if (!tr.hat.includes(pos)) this.hat(t, 0.018 * k, out);
+      if ((pos === 6 || pos === 14) && !tr.kick.includes(pos)) this.kick(t, out);
+    }
+    if (k > 0.6 && pos % 4 === 0) {
+      const n = chord[(pos / 4) % chord.length];
+      this.pluck(NOTE(n), t, s16 * 3, 0.02 * k, out);
+    }
+  }
+
+  /** Low-health heartbeat (two soft thumps). */
+  heartbeat(vol = 1): void {
+    if (!this.ready) return;
+    const t = this.ctx!.currentTime + 0.01;
+    this.tone('sine', 70, 40, t, 0.12, 0.35 * vol, this.sfxBus);
+    this.tone('sine', 62, 36, t + 0.2, 0.14, 0.28 * vol, this.sfxBus);
   }
 
   private padVoice(f: number, t: number, dur: number, detune: number, out: AudioNode, vol = 0.012): void {
