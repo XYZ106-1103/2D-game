@@ -176,7 +176,9 @@ export class GameScene extends Phaser.Scene implements Juice {
     if (data.boss) this.setupBoss();
 
     this.cam = new CameraDirector(cam, world.pixelWidth, world.pixelHeight);
-    this.cam.snap(this.player.x, this.player.y);
+    // boss arena: hold a fixed height so the boss and the floor stay framed
+    if (data.boss) this.cam.lockY = 60;
+    this.cam.snap(this.player.x, this.player.feetY, this.player.facing);
     this.weather = new Weather(
       this,
       this.level.surfaces,
@@ -443,20 +445,7 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.stats.kills = this.combat.kills;
     this.stats.bestCombo = this.combat.bestCombo;
     const b = this.player.body;
-    // while tethered, frame the anchor too
-    const rope = this.player.grapple.rope;
-    if (this.player.grapple.attached && rope.attached) {
-      const piv = rope.active;
-      this.cam.biasX += (clamp((piv.x - b.x) * 0.28, -60, 60) - this.cam.biasX) * Math.min(1, real * 3);
-      this.cam.biasY += (clamp((piv.y - b.y) * 0.3, -50, 20) - this.cam.biasY) * Math.min(1, real * 3);
-    } else if (this.boss && !this.boss.defeated) {
-      this.cam.biasX += (clamp((this.boss.x - b.x) * 0.3, -70, 70) - this.cam.biasX) * Math.min(1, real * 2);
-      this.cam.biasY += (clamp((this.boss.y - b.y) * 0.3, -60, 10) - this.cam.biasY) * Math.min(1, real * 2);
-    } else {
-      this.cam.biasX *= Math.max(0, 1 - real * 2);
-      this.cam.biasY *= Math.max(0, 1 - real * 2);
-    }
-    this.cam.update(real, this.player.sprite.x, this.player.sprite.y - 12, b.vx, b.vy, aim.x, aim.y, b.onGround);
+    this.cam.update(real, this.player.sprite.x, this.player.sprite.y, b.vx, b.onGround && !this.player.dead);
     this.parallax.update(real, cam.scrollX, cam.scrollY);
     this.weather.update(real, cam.scrollX, cam.scrollY);
     this.particles.update(real * this.timeScale);
@@ -624,7 +613,7 @@ export class GameScene extends Phaser.Scene implements Juice {
         this.combat.reset();
         this.gimmicks.reset();
         this.boss?.reset();
-        this.cam.snap(p.x, p.y);
+        this.cam.snap(p.x, p.feetY, p.facing);
         this.state = 'play';
         this.respawning = false;
         this.hud?.showSignalLost(false);
@@ -713,7 +702,7 @@ export class GameScene extends Phaser.Scene implements Juice {
       if (Phaser.Input.Keyboard.JustDown(key)) {
         const cp = this.checkpoints[i];
         this.player.respawn(cp.x, cp.y);
-        this.cam.snap(cp.x, cp.y);
+        this.cam.snap(cp.x, cp.y, this.player.facing);
       }
     }
   }

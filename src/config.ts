@@ -29,8 +29,10 @@ export const PLAYER = {
   maxFall: 460,
   jumpVel: 338,
   jumpCut: 0.45,
-  coyote: 0.1,
-  jumpBuffer: 0.13,
+  /** Shortest hop: early release can't cut the jump before this (s). */
+  minJumpTime: 0.07,
+  coyote: 0.12,
+  jumpBuffer: 0.15,
   // dash
   dashSpeed: 410,
   dashTime: 0.14,
@@ -63,13 +65,27 @@ export const HOOK = {
 } as const;
 
 export const CAMERA = {
-  lookAheadX: 0.32,
-  lookAheadY: 0.18,
-  maxLookX: 70,
-  maxLookY: 40,
-  aimInfluence: 0.12,
-  stiffness: 7.5,
-  verticalStiffness: 5.5,
+  /** Horizontal dead-zone width (px) around the screen centre. */
+  deadZoneW: 160,
+  /** Follow point sits this far ahead of the player in the travel direction. */
+  lookAhead: 120,
+  /** Horizontal speed (px/s) that counts as travelling (sets the direction). */
+  travelSpeed: 30,
+  /** Mid-air (swinging, flying) only fast travel can turn the look-ahead. */
+  airTravelSpeed: 160,
+  /** Seconds of sustained travel needed to flip the look-ahead side. */
+  turnCommit: 0.3,
+  airTurnCommit: 0.6,
+  /** How quickly the look-ahead swings to the other side when turning. */
+  lookTurnRate: 2.4,
+  followRate: 7.5,
+  /** Feet height on screen after a landing re-frame (px from the top). */
+  groundScreenY: 188,
+  landRate: 5,
+  /** Safe band: the camera follows mid-air only past these screen margins. */
+  safeTop: 48,
+  safeBottom: 56,
+  safeRate: 14,
 } as const;
 
 export const DEPTH = {

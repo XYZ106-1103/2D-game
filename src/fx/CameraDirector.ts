@@ -3,23 +3,37 @@ import { CAMERA, GAME_H, GAME_W } from '../config.ts';
 import { clamp, damp, shakeNoise } from '../core/math.ts';
 
 /**
- * Hand-rolled camera: velocity look-ahead, aim bias, spring smoothing,
- * trauma-based shake and integer-pixel output (pixel-perfect).
+ * Platformer camera, pixel-perfect output.
+ *
+ * Horizontal: a follow point sits CAMERA.lookAhead px ahead of the player in
+ * the direction of travel; the camera only scrolls when that point leaves a
+ * CAMERA.deadZoneW-wide window centred on the screen (same semantics as a
+ * Phaser follow offset + dead zone).
+ *
+ * Vertical: the camera re-frames only when the player lands; jumps, swings
+ * and falls keep the current height unless the player would leave the safe
+ * band at the top or bottom of the screen.
  */
 export class CameraDirector {
   private cam: Phaser.Cameras.Scene2D.Camera;
   private x = 0;
   private y = 0;
+  /** Smoothed look-ahead offset (−lookAhead … +lookAhead). */
   private lookX = 0;
-  private lookY = 0;
+  private dir = 1;
+  /** How long the player has been travelling against the current look direction. */
+  private turnT = 0;
+  /** Camera centre the dead zone currently allows. */
+  private wantCX = 0;
+  /** Vertical scroll target, refreshed on landing. */
+  private wantY = 0;
   private trauma = 0;
   private traumaDur = 0.2;
   private time = 0;
   private bounds: { w: number; h: number };
+  /** Fixed vertical scroll (boss arenas), or null. */
+  lockY: number | null = null;
   shakeScale = 1;
-  /** Extra offset for cinematic moments. */
-  biasX = 0;
-  biasY = 0;
   shakeX = 0;
   shakeY = 0;
 
@@ -28,11 +42,16 @@ export class CameraDirector {
     this.bounds = { w: worldW, h: worldH };
   }
 
-  snap(tx: number, ty: number): void {
-    this.x = tx - GAME_W / 2;
-    this.y = ty - GAME_H / 2 - 20;
-    this.lookX = this.lookY = 0;
+  /** Jump straight to the player (spawn / respawn). */
+  snap(px: number, feetY: number, facing = this.dir): void {
+    this.dir = facing >= 0 ? 1 : -1;
+    this.lookX = this.dir * CAMERA.lookAhead;
+    this.wantCX = px + this.lookX;
+    this.x = this.wantCX - GAME_W / 2;
+    this.wantY = this.lockY ?? feetY - CAMERA.groundScreenY;
+    this.y = this.wantY;
     this.clampPos();
+    this.wantY = this.y;
     this.apply();
   }
 
@@ -41,24 +60,48 @@ export class CameraDirector {
     this.traumaDur = Math.max(0.05, duration);
   }
 
-  update(dt: number, tx: number, ty: number, vx: number, vy: number, aimX: number, aimY: number, grounded: boolean): void {
+  update(dt: number, px: number, feetY: number, vx: number, grounded: boolean): void {
     this.time += dt;
-    // look-ahead follows velocity (smoothed separately so it doesn't jitter)
-    const wantLX = clamp(vx * CAMERA.lookAheadX, -CAMERA.maxLookX, CAMERA.maxLookX);
-    const wantLY = clamp(vy * CAMERA.lookAheadY, -CAMERA.maxLookY * 0.6, CAMERA.maxLookY);
-    this.lookX += (wantLX - this.lookX) * damp(2.4, dt);
-    this.lookY += (wantLY - this.lookY) * damp(2.0, dt);
-    const ax = (aimX - tx) * CAMERA.aimInfluence;
-    const ay = (aimY - ty) * CAMERA.aimInfluence;
-    const gx = tx + this.lookX + clamp(ax, -40, 40) + this.biasX - GAME_W / 2;
-    const gy = ty + this.lookY + clamp(ay, -24, 24) + this.biasY - GAME_H / 2 - (grounded ? 18 : 8);
-    this.x += (gx - this.x) * damp(CAMERA.stiffness, dt);
-    this.y += (gy - this.y) * damp(CAMERA.verticalStiffness, dt);
+
+    // --- horizontal: look-ahead point + dead zone ------------------------------
+    // Commit to a new travel direction only after sustained movement, so a
+    // quick turn, an attack or a pendulum swing doesn't whip the view around.
+    const against = vx * this.dir < 0;
+    const fast = Math.abs(vx) > (grounded ? CAMERA.travelSpeed : CAMERA.airTravelSpeed);
+    this.turnT = against && fast ? this.turnT + dt : 0;
+    if (this.turnT > (grounded ? CAMERA.turnCommit : CAMERA.airTurnCommit)) {
+      this.dir = -this.dir;
+      this.turnT = 0;
+    }
+    this.lookX += (this.dir * CAMERA.lookAhead - this.lookX) * damp(CAMERA.lookTurnRate, dt);
+    const fx = px + this.lookX;
+    const half = CAMERA.deadZoneW / 2;
+    if (fx > this.wantCX + half) this.wantCX = fx - half;
+    else if (fx < this.wantCX - half) this.wantCX = fx + half;
+    this.x += (this.wantCX - GAME_W / 2 - this.x) * damp(CAMERA.followRate, dt);
+
+    // --- vertical: re-frame on landing, safe band otherwise ----------------------
+    let rate: number = CAMERA.landRate;
+    if (this.lockY !== null) this.wantY = this.lockY;
+    else {
+      if (grounded) this.wantY = feetY - CAMERA.groundScreenY;
+      const chest = feetY - 12;
+      const top = this.y + CAMERA.safeTop;
+      const bottom = this.y + GAME_H - CAMERA.safeBottom;
+      if (chest < top) {
+        this.wantY = Math.min(this.wantY, chest - CAMERA.safeTop);
+        rate = CAMERA.safeRate;
+      } else if (chest > bottom) {
+        this.wantY = Math.max(this.wantY, chest - (GAME_H - CAMERA.safeBottom));
+        rate = CAMERA.safeRate;
+      }
+    }
+    this.y += (this.wantY - this.y) * damp(rate, dt);
     this.clampPos();
 
-    // shake decays linearly over its duration; magnitude ∝ trauma²-ish
+    // shake decays over its duration
     if (this.trauma > 0) {
-      this.trauma = Math.max(0, this.trauma - (dt / this.traumaDur) * this.trauma * 1.0 - dt * 2);
+      this.trauma = Math.max(0, this.trauma - (dt / this.traumaDur) * this.trauma - dt * 2);
     }
     const mag = this.trauma * this.shakeScale;
     this.shakeX = Math.round(shakeNoise(this.time, 1) * mag);
@@ -67,8 +110,13 @@ export class CameraDirector {
   }
 
   private clampPos(): void {
-    this.x = clamp(this.x, 0, Math.max(0, this.bounds.w - GAME_W));
-    this.y = clamp(this.y, -120, Math.max(0, this.bounds.h - GAME_H));
+    const maxX = Math.max(0, this.bounds.w - GAME_W);
+    const maxY = Math.max(0, this.bounds.h - GAME_H);
+    this.x = clamp(this.x, 0, maxX);
+    this.y = clamp(this.y, -120, maxY);
+    // keep the dead-zone centre consistent with the clamped view at world edges
+    this.wantCX = clamp(this.wantCX, GAME_W / 2, maxX + GAME_W / 2);
+    this.wantY = clamp(this.wantY, -120, maxY);
   }
 
   private apply(): void {

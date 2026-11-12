@@ -43,6 +43,7 @@ export class Player {
   // timers & state
   private coyote = 0;
   private jumpBuf = 0;
+  private jumpT = 0;
   private grappleBuf = 0;
   private jumping = false;
   private airDashes = 1;
@@ -307,7 +308,7 @@ export class Player {
     if (b.onGround) {
       this.coyote = P.coyote;
       this.airDashes = 1;
-    } else this.coyote -= dt;
+    }
 
     const max = P.runSpeed;
     if (b.onGround) {
@@ -334,6 +335,7 @@ export class Player {
       } else {
         b.vy = -P.jumpVel;
         this.jumping = true;
+        this.jumpT = 0;
         this.jumpBuf = 0;
         this.coyote = 0;
         b.onGround = false;
@@ -343,7 +345,14 @@ export class Player {
         this.setAnim('jump', true);
       }
     }
-    if (this.jumping && !input.jumpHeld && b.vy < 0) {
+    // coyote time counts down only after this step's jump check, so the
+    // configured window is exact
+    if (!b.onGround) this.coyote -= dt;
+
+    // variable height: releasing early cuts the jump, but never below a
+    // minimum hop (so a buffered tap that was already released still jumps)
+    this.jumpT += dt;
+    if (this.jumping && !input.jumpHeld && b.vy < 0 && this.jumpT >= P.minJumpTime) {
       b.vy *= P.jumpCut;
       this.jumping = false;
     }
