@@ -75,5 +75,6 @@ export function buildLevel3(): LevelData {
   L.prop('antenna', 44, 8).prop('dish', 28, 8);
   L.exit(46, 7);
 
+  L.clearText('레테 타워 외벽 등반 완료');
   return L.build();
 }

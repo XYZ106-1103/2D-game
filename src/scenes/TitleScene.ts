@@ -147,9 +147,9 @@ export class TitleScene extends Phaser.Scene {
     this.menu.setVisible(false);
     const root = this.add.container(0, 0).setDepth(200);
     const w = 200;
-    const h = 34 + STAGE_NAMES.length * 15;
+    const h = 34 + STAGE_NAMES.length * 14;
     const x = Math.round((GAME_W - w) / 2);
-    const y = 96;
+    const y = Math.max(8, Math.round((GAME_H - h) / 2) + 6);
     root.add(panel(this, x, y, w, h));
     root.add(text(this, x + 12, y + 7, UI_TEXT.stageSelect, 'galmuri11b', COLORS.cyan));
     const max = unlockedStage();
@@ -166,7 +166,7 @@ export class TitleScene extends Phaser.Scene {
       x + 20,
       y + 28,
       STAGE_NAMES.map((n, i) => ({ label: `${i + 1}. ${i <= max ? n : '???'}`, disabled: i > max, action: () => this.go(false, i) })),
-      { width: w - 44, spacing: 15 },
+      { width: w - 44, spacing: 14 },
     );
     sub.onBack = close;
     root.add(sub.container);

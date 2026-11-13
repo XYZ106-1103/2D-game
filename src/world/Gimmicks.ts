@@ -8,6 +8,7 @@ import type { Particles } from '../fx/Particles.ts';
 import type { Juice } from '../fx/Juice.ts';
 import { CRUMBLE_TILE, type Level } from './Level.ts';
 import { Mat, type MoverDef, type VentDef } from './LevelData.ts';
+import { Devices } from './Devices.ts';
 
 /** Tether drone that shuttles along a path; the rope's root follows it. */
 export class MovingAnchor implements AnchorPoint {
@@ -104,7 +105,7 @@ class Crumbles {
       } else if (c.state === 'shaking') {
         if (c.img) {
           c.img.setPosition(x0 + 8 + (Math.floor(c.t * 40) % 2 ? 1 : -1), top + 8);
-          c.img.setFrame(c.t > 0.3 ? 'crumble1' : 'crumble0');
+          c.img.setTexture(`${c.t > 0.3 ? 'crumble1' : 'crumble0'}-${this.level.tileKey}`);
         }
         if (c.t > 0.5) {
           c.state = 'gone';
@@ -141,7 +142,7 @@ class Crumbles {
     c.t = -delay;
     // keep physics solid while shaking, swap the tile for a jittering sprite
     this.level.mainLayer?.removeTileAt(c.tx, c.ty);
-    c.img = this.scene.add.image(c.tx * TILE + 8, c.ty * TILE + 8, 'crumble0').setDepth(DEPTH.tiles + 0.5);
+    c.img = this.scene.add.image(c.tx * TILE + 8, c.ty * TILE + 8, `crumble0-${this.level.tileKey}`).setDepth(DEPTH.tiles + 0.5);
     if (depth < 1) for (const n of this.cells) if (n !== c && n.ty === c.ty && Math.abs(n.tx - c.tx) === 1) this.trigger(n, depth + 1, 0.12);
   }
 
@@ -167,6 +168,7 @@ interface VentObj {
 /** Container for all stage gimmicks. */
 export class Gimmicks {
   readonly movers: MovingAnchor[] = [];
+  readonly devices: Devices;
   private crumbles: Crumbles;
   private vents: VentObj[] = [];
   private particles: Particles;
@@ -178,12 +180,14 @@ export class Gimmicks {
     this.juice = juice;
     for (const m of level.data.movers) this.movers.push(new MovingAnchor(scene, m));
     this.crumbles = new Crumbles(scene, level);
+    this.devices = new Devices(scene, level, particles, juice);
     // crumble sprite textures cut from the tileset
-    const ts = scene.textures.get('tiles');
-    for (const [k, idx] of [
+    const ts = scene.textures.get(level.tileKey);
+    for (const [base, idx] of [
       ['crumble0', CRUMBLE_TILE],
       ['crumble1', CRUMBLE_TILE + 1],
     ] as const) {
+      const k = `${base}-${level.tileKey}`;
       if (!scene.textures.exists(k)) {
         const src = ts.getSourceImage() as HTMLImageElement;
         const canvas = scene.textures.createCanvas(k, TILE, TILE)!;
@@ -202,6 +206,7 @@ export class Gimmicks {
     this.time += dt;
     for (const m of this.movers) m.fixedUpdate(dt);
     this.crumbles.update(dt, player, this.particles, this.juice);
+    this.devices.fixedUpdate(dt, player);
     const b = player.body;
     for (const v of this.vents) {
       v.t += dt;
@@ -223,6 +228,7 @@ export class Gimmicks {
   }
 
   render(dt: number): void {
+    this.devices.render(dt);
     for (const m of this.movers) m.render(this.time);
     for (const v of this.vents) {
       v.glow.setAlpha(v.on ? 0.22 + Math.sin(this.time * 20) * 0.04 : Math.max(0, v.glow.alpha - dt * 2));
@@ -243,9 +249,16 @@ export class Gimmicks {
 
   reset(): void {
     this.crumbles.reset();
+    this.devices.reset();
+  }
+
+  /** Hook targets besides static anchors: movers, gravity cores, switches. */
+  anchors(): AnchorPoint[] {
+    return (this.movers as AnchorPoint[]).concat(this.devices.anchors());
   }
 
   destroy(): void {
     for (const m of this.movers) m.destroy();
+    this.devices.destroy();
   }
 }

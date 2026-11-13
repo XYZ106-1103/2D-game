@@ -20,7 +20,21 @@ const E = 2;
 const Sb = 4;
 const W = 8;
 
-type Plot = (x: number, y: number, c: number) => void;
+export type Plot = (x: number, y: number, c: number, a?: number) => void;
+
+/** A material set: every slot of the tileset layout drawn in one visual language. */
+export interface TileKit {
+  solid(p: Plot, mask: number, v: number): void;
+  interior(p: Plot, kind: number): void;
+  plate(p: Plot, mask: number): void;
+  glass(p: Plot, mask: number): void;
+  catwalk(p: Plot, part: number): void;
+  rail(p: Plot, part: number): void;
+  backwall(p: Plot, kind: number): void;
+  crumble(p: Plot, frame: number): void;
+  /** Row 7: phase blocks (0-3) and light bridges (4-5). */
+  extra?(p: Plot, k: number): void;
+}
 
 function concrete(p: Plot, mask: number, v: number): void {
   for (let y = 0; y < T; y++) {
@@ -78,7 +92,7 @@ function concrete(p: Plot, mask: number, v: number): void {
   roundCorners(p, mask);
 }
 
-function roundCorners(p: Plot, mask: number): void {
+export function roundCorners(p: Plot, mask: number): void {
   const clear = -1;
   if (mask & N && mask & W) p(0, 0, clear);
   if (mask & N && mask & E) p(15, 0, clear);
@@ -369,29 +383,36 @@ function crumble(p: Plot, frame: number): void {
   }
 }
 
-export function buildTileset(): PixelCanvas {
+export const DEFAULT_KIT: TileKit = { solid: concrete, interior, plate: steel, glass, catwalk, rail, backwall, crumble };
+
+export function buildTileset(kit: TileKit = DEFAULT_KIT): PixelCanvas {
   const cols = 16;
   const rows = 8;
   const c = new PixelCanvas(cols * T, rows * T);
-  const at = (col: number, row: number): Plot => (x, y, color) => {
+  const at = (col: number, row: number): Plot => (x, y, color, a = 255) => {
+    if (x < 0 || y < 0 || x >= T || y >= T) return;
     if (color < 0) c.clear(col * T + x, row * T + y);
-    else c.set(col * T + x, row * T + y, color);
+    else {
+      if (a < 255) c.clear(col * T + x, row * T + y);
+      c.set(col * T + x, row * T + y, color, a);
+    }
   };
   for (let m = 0; m < 16; m++) {
-    concrete(at(m, 0), m, 0);
-    concrete(at(m, 1), m, 1);
-    steel(at(m, 3), m);
-    glass(at(m, 4), m);
+    kit.solid(at(m, 0), m, 0);
+    kit.solid(at(m, 1), m, 1);
+    kit.plate(at(m, 3), m);
+    kit.glass(at(m, 4), m);
   }
-  for (let k = 0; k < 9; k++) interior(at(k, 2), k);
+  for (let k = 0; k < 9; k++) kit.interior(at(k, 2), k);
   for (let k = 0; k < 4; k++) {
-    catwalk(at(k, 5), k);
-    rail(at(4 + k, 5), k);
+    kit.catwalk(at(k, 5), k);
+    kit.rail(at(4 + k, 5), k);
   }
-  for (let k = 0; k < 8; k++) backwall(at(8 + k, 5), k);
-  for (let k = 0; k < 8; k++) backwall(at(k, 6), k + 8);
-  crumble(at(8, 6), 0);
-  crumble(at(9, 6), 1);
+  for (let k = 0; k < 8; k++) kit.backwall(at(8 + k, 5), k);
+  for (let k = 0; k < 8; k++) kit.backwall(at(k, 6), k + 8);
+  kit.crumble(at(8, 6), 0);
+  kit.crumble(at(9, 6), 1);
+  if (kit.extra) for (let k = 0; k < 6; k++) kit.extra(at(k, 7), k);
   return c;
 }
 

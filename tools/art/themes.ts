@@ -8,7 +8,7 @@ import { skyline } from './backgrounds.ts';
 
 type Ramp = readonly number[];
 
-function gradientSky(pal: Ramp, opts: { smog: number; stars: number; moon?: { x: number; y: number; r: number; pal: Ramp; halo: number[] } }): PixelCanvas {
+export function gradientSky(pal: Ramp, opts: { smog: number; stars: number; moon?: { x: number; y: number; r: number; pal: Ramp; halo: number[] } }): PixelCanvas {
   const W = 480;
   const H = 270;
   const c = new PixelCanvas(W, H);
@@ -46,7 +46,7 @@ function gradientSky(pal: Ramp, opts: { smog: number; stars: number; moon?: { x:
 }
 
 /** Sea of smog seen from above, lit from beneath by the city. Tileable. */
-function cloudSea(width: number, height: number, seed: number, top: Ramp, glow: Ramp): PixelCanvas {
+export function cloudSea(width: number, height: number, seed: number, top: Ramp, glow: Ramp): PixelCanvas {
   const c = new PixelCanvas(width, height);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -69,7 +69,7 @@ function cloudSea(width: number, height: number, seed: number, top: Ramp, glow: 
 }
 
 /** Tall tower tops piercing the cloud sea (cold, distant). Tileable. */
-function piercingTowers(width: number, height: number, seed: number, body: Ramp, lights: number[]): PixelCanvas {
+export function piercingTowers(width: number, height: number, seed: number, body: Ramp, lights: number[]): PixelCanvas {
   const c = new PixelCanvas(width, height);
   const rng = new RNG(seed);
   let x = 0;

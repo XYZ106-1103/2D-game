@@ -12,9 +12,11 @@ import { Enemy, type EnemyCtx, type HitKind, type HitResult } from '../entities/
 import { Drone } from '../entities/enemies/Drone.ts';
 import { Sentry } from '../entities/enemies/Sentry.ts';
 import { Trooper } from '../entities/enemies/Trooper.ts';
+import { Mine } from '../entities/enemies/Mine.ts';
+import { Echo } from '../entities/enemies/Echo.ts';
 
 export interface EnemyDef {
-  kind: 'drone' | 'sentry' | 'trooper';
+  kind: 'drone' | 'sentry' | 'trooper' | 'mine' | 'echo';
   x: number;
   y: number;
 }
@@ -67,6 +69,8 @@ export class Combat {
     let e: Enemy;
     if (d.kind === 'drone') e = new Drone(this.ctx, d.x, d.y);
     else if (d.kind === 'sentry') e = new Sentry(this.ctx, d.x, d.y);
+    else if (d.kind === 'mine') e = new Mine(this.ctx, d.x, d.y);
+    else if (d.kind === 'echo') e = new Echo(this.ctx, d.x, d.y);
     else e = new Trooper(this.ctx, d.x, d.y);
     this.enemies.push(e);
     return e;

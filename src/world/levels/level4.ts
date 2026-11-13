@@ -4,7 +4,8 @@ import { LevelBuilder, Mat, type LevelData } from '../LevelData.ts';
 export function buildBossLevel(): LevelData {
   const L = new LevelBuilder('archivist', '기록관', 'EXECUTOR UNIT LT-0 "ARCHIVIST"', 40, 24);
   L.setTheme('tower', 'boss', 0.5);
-  L.data.boss = true;
+  L.data.boss = 'archivist';
+  L.clearText('기록관 격파 — 첨탑 중심부 개방');
   // crown helipad
   L.fill(0, 19, 39, 23, Mat.Steel);
   L.fill(0, 0, 0, 18, Mat.Steel);

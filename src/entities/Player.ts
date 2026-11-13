@@ -39,6 +39,8 @@ export class Player {
   deadT = 0;
   fellOut = false;
   controlLocked = false;
+  /** Set each step by stage devices (zero-g pockets). */
+  gravityScale = 1;
 
   // timers & state
   private coyote = 0;
@@ -362,7 +364,10 @@ export class Player {
     if (b.vy > 0) g *= P.fallGravityMul;
     if (!b.onGround && Math.abs(b.vy) < P.apexThreshold && input.jumpHeld) g *= P.apexGravityMul;
     if (this.attackKind === 'airattack' && this.attackT > 0) g *= 0.45;
-    b.vy = Math.min(b.vy + g * dt, P.maxFall);
+    g *= this.gravityScale;
+    const maxFall = this.gravityScale < 1 ? P.maxFall * (0.4 + 0.6 * this.gravityScale) : P.maxFall;
+    if (this.gravityScale < 1 && b.vy > maxFall) b.vy -= Math.min(b.vy - maxFall, 900 * dt);
+    else b.vy = Math.min(b.vy + g * dt, maxFall);
 
     this.integrate(dt);
   }
@@ -462,7 +467,7 @@ export class Player {
       }
     }
 
-    b.vy += PLAYER.gravity * dt;
+    b.vy += PLAYER.gravity * this.gravityScale * dt;
     // light air drag keeps swings from building forever
     const drag = Math.exp(-0.08 * dt);
     b.vx *= drag;

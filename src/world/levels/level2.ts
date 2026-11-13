@@ -69,5 +69,6 @@ export function buildLevel2(): LevelData {
   L.prop('billboard', 186, 12).prop('ac', 178, 12).prop('crate', 191, 12).prop('lamp', 197, 12);
   L.exit(205, 11);
 
+  L.clearText('하층 시장 통과 — 타워 작업층 진입');
   return L.build();
 }

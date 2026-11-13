@@ -3,17 +3,11 @@ import { GAME_W } from '../config.ts';
 import { COLORS } from '../art/palette.ts';
 import { audio } from '../audio/AudioEngine.ts';
 import { Weather } from '../world/Weather.ts';
-import { LOGS, UI_TEXT } from '../data/story.ts';
+import { EPILOGUE, LOGS, UI_TEXT } from '../data/story.ts';
 import { Typewriter, panel, text } from '../ui/Ui.ts';
 import type { NeonPostFX } from '../fx/NeonPostFX.ts';
 
-const LINES: { t: string; c: number }[] = [
-  { t: '기록관이 침묵했다.', c: COLORS.uiText },
-  { t: '모스의 코어 깊은 곳에서, 지워졌던 목소리가 재생된다.', c: COLORS.uiText },
-  { t: "'이걸 듣고 있다면, 나는 나를 지우는 데 성공한 거야.'", c: COLORS.cyan },
-  { t: "'레테가 천백만 명에게서 훔친 그 한 시간은 — 모스, 네 안에 있어.'", c: COLORS.cyan },
-  { t: "'첨탑 꼭대기의 방송탑으로 가. 그 시간을 이 도시에 돌려줘.'", c: COLORS.cyan },
-];
+const TONE: Record<string, number> = { text: COLORS.uiText, cyan: COLORS.cyan, amber: COLORS.amberHot };
 
 interface RunStats {
   time: number;
@@ -23,7 +17,11 @@ interface RunStats {
   logs: string[];
 }
 
-/** Chapter ending: typed epilogue over the rain, then run stats and credits. */
+/**
+ * Chapter endings. Chapter 1: typed epilogue over the rain, then the chapter
+ * card, then straight into chapter 2. Chapter 2 (finale): epilogue at dawn,
+ * title card, run stats and credits.
+ */
 export class EndingScene extends Phaser.Scene {
   private weather!: Weather;
   private tw: Typewriter | null = null;
@@ -35,21 +33,22 @@ export class EndingScene extends Phaser.Scene {
   private spire!: Phaser.GameObjects.Image;
   private canLeave = false;
   private titleObjs: Phaser.GameObjects.GameObject[] = [];
+  private chapter = 2;
+  private nextStage = 0;
+  private carry: string[] = [];
+  private lines: { t: string; c: number }[] = [];
 
   constructor() {
     super('Ending');
   }
 
-  init(data: { stats?: RunStats }): void {
+  init(data: { chapter?: number; next?: number; carry?: string[] }): void {
     const run = (this.registry.get('run') as RunStats | undefined) ?? { time: 0, deaths: 0, kills: 0, bestCombo: 0, logs: [] };
-    const last = data.stats ?? { time: 0, deaths: 0, kills: 0, bestCombo: 0, logs: [] };
-    this.stats = {
-      time: run.time + last.time,
-      deaths: run.deaths + last.deaths,
-      kills: run.kills + last.kills,
-      bestCombo: Math.max(run.bestCombo, last.bestCombo),
-      logs: last.logs,
-    };
+    this.stats = { ...run, logs: run.logs ?? [] };
+    this.chapter = data.chapter ?? 2;
+    this.nextStage = data.next ?? 0;
+    this.carry = data.carry ?? this.stats.logs;
+    this.lines = (this.chapter === 1 ? EPILOGUE.ch1 : EPILOGUE.ch2).map((l) => ({ t: l.t, c: TONE[l.c] ?? COLORS.uiText }));
     this.idx = -1;
     this.wait = 1.4;
     this.phase = 'lines';
@@ -59,8 +58,13 @@ export class EndingScene extends Phaser.Scene {
 
   create(): void {
     this.cameras.main.setBackgroundColor('#05030a');
-    this.spire = this.add.image(GAME_W / 2, 10, 'bg-spire').setOrigin(0.5, 0).setAlpha(0).setTint(0x8c1a72);
-    this.weather = new Weather(this, [], () => undefined, () => undefined, 0.6);
+    if (this.chapter === 1) {
+      this.spire = this.add.image(GAME_W / 2, 10, 'bg-spire').setOrigin(0.5, 0).setAlpha(0).setTint(0x8c1a72);
+      this.weather = new Weather(this, [], () => undefined, () => undefined, 0.6);
+    } else {
+      this.spire = this.add.image(0, 0, 'bg-dawn_sky').setOrigin(0, 0).setAlpha(0);
+      this.weather = new Weather(this, [], () => undefined, () => undefined, 0.5, false, 'petals');
+    }
     if (this.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer) {
       this.cameras.main.setPostPipeline('NeonPostFX');
       (this.cameras.main.getPostPipeline('NeonPostFX') as NeonPostFX).vignette = 0.85;
@@ -75,11 +79,11 @@ export class EndingScene extends Phaser.Scene {
 
   private next(): void {
     this.idx++;
-    if (this.idx >= LINES.length) {
+    if (this.idx >= this.lines.length) {
       this.showTitle();
       return;
     }
-    const L = LINES[this.idx];
+    const L = this.lines[this.idx];
     const y = 70 + this.idx * 22;
     const t = text(this, 0, y, L.t, 'galmuri9', L.c);
     t.x = Math.round((GAME_W - t.width) / 2);
@@ -95,16 +99,24 @@ export class EndingScene extends Phaser.Scene {
     this.children.list.filter((o) => o instanceof Phaser.GameObjects.BitmapText).forEach((o) => this.tweens.add({ targets: o, alpha: 0, duration: 900 }));
     this.time.delayedCall(1000, () => {
       const logo = this.add.image(GAME_W / 2, 92, 'ui', 'logo').setAlpha(0);
-      const a = text(this, 0, 118, 'CHAPTER 1 — 끝', 'galmuri11b', COLORS.white);
+      const first = this.chapter === 1;
+      const a = text(this, 0, 118, first ? 'CHAPTER 1 — 끝' : 'CHAPTER 2 — 끝', 'galmuri11b', COLORS.white);
       a.x = Math.round((GAME_W - a.width) / 2);
-      const b = text(this, 0, 138, 'CHAPTER 2: 첨탑의 심장 — 계속', 'galmuri9', COLORS.magenta);
+      const b = text(this, 0, 138, first ? 'CHAPTER 2: 첨탑의 심장' : '그 한 시간은, 이제 모두의 것이다.', 'galmuri9', first ? COLORS.magenta : COLORS.amberHot);
       b.x = Math.round((GAME_W - b.width) / 2);
       a.setAlpha(0);
       b.setAlpha(0);
       this.titleObjs = [logo, a, b];
       this.tweens.add({ targets: [logo, a, b], alpha: 1, duration: 1400 });
       audio.play('clear', { vol: 0.8 });
-      this.time.delayedCall(3800, () => this.showStats());
+      if (first) {
+        // straight on into chapter 2
+        this.time.delayedCall(4200, () => {
+          audio.stopMusic(1.2);
+          this.cameras.main.fadeOut(1000, 5, 3, 10);
+          this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => this.scene.start('Game', { stage: this.nextStage, carry: this.carry }));
+        });
+      } else this.time.delayedCall(3800, () => this.showStats());
     });
   }
 
@@ -163,7 +175,7 @@ export class EndingScene extends Phaser.Scene {
     const dt = Math.min(deltaMs / 1000, 1 / 20);
     this.elapsed += dt;
     this.weather.update(dt, 0, 0);
-    this.spire.setAlpha(Math.min(0.45, this.elapsed * 0.03));
+    this.spire.setAlpha(Math.min(this.chapter === 1 ? 0.45 : 0.85, this.elapsed * (this.chapter === 1 ? 0.03 : 0.06)));
     if (this.phase !== 'lines') return;
     this.tw?.update(dt);
     if (!this.tw || this.tw.done) {

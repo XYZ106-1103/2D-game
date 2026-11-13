@@ -152,8 +152,8 @@ export class HudScene extends Phaser.Scene {
     }
     this.dlgOpen = true;
     this.dlgBox.setVisible(true);
-    this.dlgName.setText(line.who === 'ION' ? '이온' : line.who);
-    this.dlgName.setTint(line.who === 'MOTH' ? COLORS.cyan : line.who === 'ION' ? COLORS.amberHot : COLORS.acid);
+    this.dlgName.setText(line.who === 'ION' ? '이온' : line.who === 'NOCTURNE' ? '녹턴' : line.who);
+    this.dlgName.setTint(line.who === 'MOTH' ? COLORS.cyan : line.who === 'ION' ? COLORS.amberHot : line.who === 'NOCTURNE' ? COLORS.magenta : COLORS.acid);
     this.dlgTw.start(wrap(this, 'galmuri9', line.text, 272));
     this.dlgHold = 2.2 + line.text.length * 0.03;
   }
@@ -244,7 +244,7 @@ export class HudScene extends Phaser.Scene {
     this.lost.setVisible(v);
   }
 
-  showClear(stats: { time: number; deaths: number; logs: string[]; kills?: number; bestCombo?: number }): void {
+  showClear(stats: { time: number; deaths: number; logs: string[]; kills?: number; bestCombo?: number }, sub = UI_TEXT.stageClearSub): void {
     this.dlgQueue = [];
     this.dlgOpen = false;
     this.dlgBox.setVisible(false);
@@ -257,7 +257,7 @@ export class HudScene extends Phaser.Scene {
     c.add(panel(this, x, y, w, h));
     const t = text(this, 0, y + 10, UI_TEXT.stageClear, 'galmuri11b', COLORS.acid);
     t.x = Math.round((GAME_W - t.width) / 2);
-    const s = text(this, 0, y + 28, UI_TEXT.stageClearSub, 'galmuri9', COLORS.uiText);
+    const s = text(this, 0, y + 28, sub, 'galmuri9', COLORS.uiText);
     s.x = Math.round((GAME_W - s.width) / 2);
     c.add([t, s]);
     const rows: [string, string][] = [

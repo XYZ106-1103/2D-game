@@ -18,6 +18,10 @@ uniform float uVignette;
 uniform float uDesat;
 uniform float uGrade;
 uniform float uDanger;
+uniform float uDark;
+uniform vec2 uLight;
+uniform vec2 uLight2;
+uniform float uLightR;
 
 varying vec2 outTexCoord;
 
@@ -74,6 +78,18 @@ void main() {
   v = floor(v * 6.0 + dth) / 6.0;
   col *= mix(1.0, v, uVignette);
 
+  // eclipse: darkness everywhere except two light pools; glowing pixels survive
+  if (uDark > 0.001) {
+    vec2 asp = vec2(uResolution.x / uResolution.y, 1.0);
+    float l1 = smoothstep(uLightR, uLightR * 0.35, length((uv - uLight) * asp));
+    float l2 = smoothstep(uLightR * 0.8, uLightR * 0.25, length((uv - uLight2) * asp));
+    float lm = max(l1, l2);
+    lm = floor(lm * 5.0 + dth) / 5.0;
+    float bl = dot(col, vec3(0.299, 0.587, 0.114));
+    float keep = max(lm, smoothstep(0.55, 0.85, bl));
+    col = mix(col, col * (0.08 + 0.92 * keep) * vec3(0.8, 0.85, 1.1), uDark);
+  }
+
   lum = dot(col, vec3(0.299, 0.587, 0.114));
   col = mix(col, vec3(lum) * vec3(0.9, 0.95, 1.1), uDesat);
   // low-health pulse: edges bleed red
@@ -93,6 +109,11 @@ export class NeonPostFX extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
   desat = 0;
   grade = 1;
   danger = 0;
+  dark = 0;
+  /** Light pools for the eclipse (normalised screen uv, y down). */
+  light = { x: 0.5, y: 0.5 };
+  light2 = { x: -1, y: -1 };
+  lightR = 0.22;
 
   constructor(game: Phaser.Game) {
     super({ game, name: 'NeonPostFX', fragShader: FRAG });
@@ -108,5 +129,10 @@ export class NeonPostFX extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
     this.set1f('uDesat', this.desat);
     this.set1f('uGrade', this.grade);
     this.set1f('uDanger', this.danger);
+    this.set1f('uDark', this.dark);
+    // GL texture space is y-up
+    this.set2f('uLight', this.light.x, 1 - this.light.y);
+    this.set2f('uLight2', this.light2.x, 1 - this.light2.y);
+    this.set1f('uLightR', this.lightR);
   }
 }

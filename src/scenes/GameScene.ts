@@ -14,9 +14,10 @@ import type { NeonPostFX } from '../fx/NeonPostFX.ts';
 import { Level } from '../world/Level.ts';
 import { Parallax } from '../world/Parallax.ts';
 import { Weather } from '../world/Weather.ts';
-import { STAGES } from '../world/levels/index.ts';
+import { CHAPTER1_END, STAGES } from '../world/levels/index.ts';
 import { Gimmicks } from '../world/Gimmicks.ts';
 import { Archivist } from '../entities/boss/Archivist.ts';
+import { Nocturne } from '../entities/boss/Nocturne.ts';
 import type { HudScene } from './HudScene.ts';
 import { Combat } from '../combat/Combat.ts';
 
@@ -105,7 +106,11 @@ export class GameScene extends Phaser.Scene implements Juice {
   gimmicks!: Gimmicks;
   /** Set by the boss controller: blocks the exit until the fight is won. */
   exitLocked = false;
-  boss: Archivist | null = null;
+  boss: Archivist | Nocturne | null = null;
+
+  get postFx(): NeonPostFX | null {
+    return this.post;
+  }
 
   constructor() {
     super('Game');
@@ -166,14 +171,14 @@ export class GameScene extends Phaser.Scene implements Juice {
         const l = this.logs.find((o) => o.id === id);
         if (l) this.takeLog(l, true);
       }
-      this.firedTriggers.add('intro').add('move').add('m_intro').add('t_intro');
+      for (const k of ['intro', 'move', 'm_intro', 't_intro', 'a_intro', 'r_intro', 'c_intro', 's_intro', 'g_intro', 'mast_intro']) this.firedTriggers.add(k);
     }
     if (progress) for (const id of progress.logs) if (!this.stats.logs.includes(id)) this.stats.logs.push(id);
     this.player = new Player(this, world, spawn.x, spawn.y, this.particles, this);
     this.combat = new Combat(this, world, this.player, this.particles, this, data.enemies);
     this.combat.onCombo = (n) => this.hud?.combo(n);
     this.gimmicks = new Gimmicks(this, this.level, this.particles, this);
-    if (data.boss) this.setupBoss();
+    if (data.boss) this.setupBoss(data.boss);
 
     this.cam = new CameraDirector(cam, world.pixelWidth, world.pixelHeight);
     // boss arena: hold a fixed height so the boss and the floor stay framed
@@ -185,7 +190,8 @@ export class GameScene extends Phaser.Scene implements Juice {
       (a) => this.flash(a),
       () => audio.play('thunder', { vol: 0.7 }),
       data.rain,
-      data.theme === 'tower',
+      data.theme === 'tower' || data.theme === 'mast',
+      data.weather,
     );
 
     this.crosshair = this.add.image(0, 0, 'fx', 'cross_idle').setScrollFactor(0).setDepth(DEPTH.cursor);
@@ -208,17 +214,20 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.game.events.on(Phaser.Core.Events.BLUR, this.autoPause, this);
   }
 
-  private setupBoss(): void {
-    const boss = new Archivist(this);
+  private setupBoss(kind: 'archivist' | 'nocturne'): void {
+    const noc = kind === 'nocturne';
+    const boss = noc ? new Nocturne(this) : new Archivist(this);
+    const key = noc ? 'n' : 'b';
+    const name = noc ? '녹턴' : '기록관';
     this.boss = boss;
     this.exitLocked = true;
     this.combat.extraTargets = () => boss.hookTargets();
-    this.combat.extraHit = (x, y, w, h, id, dmg, kind, dir) => boss.hit(x, y, w, h, id, dmg, kind, dir);
-    boss.onPhase = (ph) => this.hud?.dialog(ph === 2 ? 'b_phase2' : 'b_phase3');
+    this.combat.extraHit = (x, y, w, h, id, dmg, kind2, dir) => boss.hit(x, y, w, h, id, dmg, kind2, dir);
+    boss.onPhase = (ph) => this.hud?.dialog(ph === 2 ? `${key}_phase2` : `${key}_phase3`);
     boss.onDefeated = () => {
       this.time.delayedCall(1600, () => {
         this.hud?.bossBar(false);
-        this.hud?.dialog('b_end');
+        this.hud?.dialog(`${key}_end`);
         this.exitLocked = false;
         this.particles.ring(this.exit.x, this.exit.y - 20, COLORS.acid);
         audio.stopMusic(2);
@@ -228,14 +237,14 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.player.controlLocked = true;
     this.time.delayedCall(400, () => {
       this.hud?.letterbox(true);
-      audio.play('roar');
+      audio.play(noc ? 'screech' : 'roar');
       this.shake(4, 1.2);
     });
-    this.time.delayedCall(1700, () => this.hud?.nameCard('기록관', 'LETHE 집행 유닛 LT-0 · ARCHIVIST'));
-    this.time.delayedCall(2600, () => this.hud?.dialog('b_intro'));
-    this.time.delayedCall(9800, () => {
+    this.time.delayedCall(1700, () => this.hud?.nameCard(name, noc ? 'PROJECT NOCTURNE · 기억을 먹는 나방' : 'LETHE 집행 유닛 LT-0 · ARCHIVIST'));
+    this.time.delayedCall(2600, () => this.hud?.dialog(`${key}_intro`));
+    this.time.delayedCall(noc ? 11800 : 9800, () => {
       this.hud?.letterbox(false);
-      this.hud?.bossBar(true, '기록관', () => boss.totalHp / boss.maxHp);
+      this.hud?.bossBar(true, name, () => boss.totalHp / boss.maxHp);
       this.player.controlLocked = false;
       boss.begin();
     });
@@ -428,7 +437,7 @@ export class GameScene extends Phaser.Scene implements Juice {
     let steps = 0;
     while (this.acc >= STEP && steps < MAX_STEPS_PER_FRAME) {
       this.gimmicks.fixedUpdate(STEP, this.player);
-      this.hookTargets = (this.anchors as AnchorPoint[]).concat(this.gimmicks.movers, this.combat.targets());
+      this.hookTargets = (this.anchors as AnchorPoint[]).concat(this.gimmicks.anchors(), this.combat.targets());
       this.player.fixedUpdate(STEP, this.controls, this.hookTargets);
       this.combat.fixedUpdate(STEP);
       this.boss?.fixedUpdate(STEP);
@@ -637,27 +646,26 @@ export class GameScene extends Phaser.Scene implements Juice {
     unlockStage(Math.min(next, STAGES.length - 1));
     if (next < STAGES.length) saveProgress({ level: '', stage: next, checkpoint: 0, logs: [...this.stats.logs] });
     else saveProgress(null);
-    this.time.delayedCall(900, () => this.hud?.showClear(this.stats));
+    this.time.delayedCall(900, () => this.hud?.showClear(this.stats, this.level.data.clearText || undefined));
   }
 
   /** Called by the HUD when the clear panel is confirmed. */
   advanceStage(): void {
     const next = this.stageIndex + 1;
-    if (next < STAGES.length) {
-      const run = (this.registry.get('run') as { time: number; deaths: number; kills: number; bestCombo: number } | undefined) ?? { time: 0, deaths: 0, kills: 0, bestCombo: 0 };
-      this.registry.set('run', {
-        time: run.time + this.stats.time,
-        deaths: run.deaths + this.stats.deaths,
-        kills: run.kills + this.stats.kills,
-        bestCombo: Math.max(run.bestCombo, this.stats.bestCombo),
-        logs: [...this.stats.logs],
-      });
-    }
+    const run = (this.registry.get('run') as { time: number; deaths: number; kills: number; bestCombo: number } | undefined) ?? { time: 0, deaths: 0, kills: 0, bestCombo: 0 };
+    this.registry.set('run', {
+      time: run.time + this.stats.time,
+      deaths: run.deaths + this.stats.deaths,
+      kills: run.kills + this.stats.kills,
+      bestCombo: Math.max(run.bestCombo, this.stats.bestCombo),
+      logs: [...this.stats.logs],
+    });
     this.cameras.main.fadeOut(600, 5, 3, 10);
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       this.scene.stop('Hud');
-      if (next < STAGES.length) this.scene.restart({ stage: next, carry: this.stats.logs });
-      else this.scene.start('Ending', { stats: this.stats });
+      if (this.stageIndex === CHAPTER1_END) this.scene.start('Ending', { chapter: 1, next, carry: this.stats.logs });
+      else if (next < STAGES.length) this.scene.restart({ stage: next, carry: this.stats.logs });
+      else this.scene.start('Ending', { chapter: 2 });
     });
   }
 

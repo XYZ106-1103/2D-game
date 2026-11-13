@@ -26,6 +26,8 @@ const IDX = {
 };
 
 export const CRUMBLE_TILE = 104;
+/** Row 7 of a kit tileset: phase A solid/ghost, phase B solid/ghost, bridge on/off. */
+export const EXTRA_TILE = { phaseA: 112, phaseAGhost: 113, phaseB: 114, phaseBGhost: 115, bridgeOn: 116, bridgeOff: 117 } as const;
 
 export interface Surface {
   x0: number;
@@ -49,6 +51,7 @@ export class Level {
         case Mat.Concrete:
         case Mat.Steel:
         case Mat.Crumble:
+        case Mat.PhaseA:
           cells[i] = Cell.Solid;
           break;
         case Mat.Glass:
@@ -88,7 +91,7 @@ export class Level {
 
   private isTop(x: number, y: number): boolean {
     const m = this.matAt(x, y);
-    const solid = m === Mat.Concrete || m === Mat.Steel || m === Mat.Glass || m === Mat.Catwalk || m === Mat.Crumble;
+    const solid = m === Mat.Concrete || m === Mat.Steel || m === Mat.Glass || m === Mat.Catwalk || m === Mat.Crumble || m === Mat.PhaseA;
     return solid && this.matAt(x, y - 1) === Mat.Empty;
   }
 
@@ -127,6 +130,12 @@ export class Level {
         return IDX.steel(this.mask(x, y, m));
       case Mat.Crumble:
         return CRUMBLE_TILE;
+      case Mat.PhaseA:
+        return EXTRA_TILE.phaseA;
+      case Mat.PhaseB:
+        return EXTRA_TILE.phaseBGhost;
+      case Mat.Bridge:
+        return EXTRA_TILE.bridgeOff;
       case Mat.Glass:
         return IDX.glass(this.mask(x, y, m));
       case Mat.Catwalk: {
@@ -142,6 +151,11 @@ export class Level {
       default:
         return -1;
     }
+  }
+
+  /** Texture key of this level's tileset. */
+  get tileKey(): string {
+    return this.data.tileset ? `tiles-${this.data.tileset}` : 'tiles';
   }
 
   /** Create tile layers in the scene. */
@@ -160,9 +174,10 @@ export class Level {
       main.push(row);
       back.push(brow);
     }
+    const key = this.tileKey;
     const make = (data: number[][], depth: number) => {
       const map = scene.make.tilemap({ data, tileWidth: TILE, tileHeight: TILE });
-      const ts = map.addTilesetImage('tiles', 'tiles', TILE, TILE, 0, 0)!;
+      const ts = map.addTilesetImage(key, key, TILE, TILE, 0, 0)!;
       const layer = map.createLayer(0, ts, 0, 0)!;
       layer.setDepth(depth);
       this.maps.push(map);

@@ -8,7 +8,7 @@ import type { Player } from '../Player.ts';
 import type { AnchorPoint } from '../Grapple.ts';
 import type { Projectiles } from '../../combat/Projectiles.ts';
 
-export type EnemyKind = 'drone' | 'sentry' | 'trooper';
+export type EnemyKind = 'drone' | 'sentry' | 'trooper' | 'mine' | 'echo';
 export type HitKind = 'slash' | 'air' | 'zip' | 'bolt' | 'boss';
 export type HitResult = 'none' | 'hit' | 'block' | 'kill';
 

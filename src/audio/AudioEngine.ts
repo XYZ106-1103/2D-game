@@ -111,6 +111,121 @@ const TRACKS: Record<string, Track> = {
     arpVol: 0.028,
     padVol: 0.01,
   }),
+  archive: T({
+    bpm: 88,
+    chords: [
+      [62, 65, 69, 72],
+      [58, 62, 65, 69],
+      [60, 64, 67, 71],
+      [57, 60, 64, 67],
+    ],
+    bass: [38, 34, 36, 33],
+    arpPattern: [0, 2, 1, 3, 2, 3, 1, 2],
+    hat: [4, 12],
+    arpRate: 1,
+    bassStyle: 'long',
+    arpVol: 0.02,
+    padVol: 0.012,
+  }),
+  refinery: T({
+    bpm: 112,
+    chords: [
+      [52, 55, 59, 62],
+      [53, 57, 60, 64],
+      [52, 55, 58, 62],
+      [50, 53, 57, 60],
+    ],
+    bass: [28, 29, 28, 26],
+    arpPattern: [0, 1, 0, 2, 0, 3, 0, 2],
+    kick: [0, 3, 8, 11],
+    snare: [4, 12],
+    hat: [2, 6, 10, 14],
+    arpRate: 2,
+    bassStyle: 'drive',
+    arpVol: 0.026,
+  }),
+  core: T({
+    bpm: 70,
+    chords: [
+      [53, 57, 60, 64],
+      [55, 59, 62, 66],
+      [57, 60, 64, 67],
+      [52, 55, 59, 64],
+    ],
+    bass: [29, 31, 33, 28],
+    arpPattern: [0, 2, 3, 1, 3, 2, 0, 3],
+    kick: [0],
+    arpRate: 1,
+    bassStyle: 'long',
+    arpVol: 0.022,
+    padVol: 0.016,
+  }),
+  memory: T({
+    bpm: 66,
+    chords: [
+      [57, 60, 64, 69],
+      [55, 59, 62, 67],
+      [53, 57, 60, 65],
+      [52, 56, 59, 64],
+    ],
+    bass: [33, 31, 29, 28],
+    arpPattern: [0, 1, 2, 3, 2, 1, 2, 3],
+    arpRate: 2,
+    bassStyle: 'long',
+    arpVol: 0.03,
+    padVol: 0.01,
+  }),
+  garden: T({
+    bpm: 92,
+    chords: [
+      [60, 64, 67, 71],
+      [57, 60, 64, 67],
+      [53, 57, 60, 64],
+      [55, 59, 62, 65],
+    ],
+    bass: [36, 33, 29, 31],
+    arpPattern: [0, 2, 1, 3, 0, 2, 3, 1],
+    kick: [0, 8],
+    hat: [2, 6, 10, 14],
+    arpRate: 2,
+    bassStyle: 'pulse',
+    arpVol: 0.028,
+  }),
+  mast: T({
+    bpm: 124,
+    chords: [
+      [50, 53, 57, 62],
+      [46, 50, 53, 58],
+      [48, 52, 55, 60],
+      [45, 48, 52, 57],
+    ],
+    bass: [26, 22, 24, 21],
+    arpPattern: [0, 1, 2, 3, 1, 2, 3, 2],
+    kick: [0, 6, 8, 14],
+    snare: [4, 12],
+    hat: [1, 3, 5, 7, 9, 11, 13, 15],
+    arpRate: 1,
+    bassStyle: 'drive',
+    arpVol: 0.026,
+  }),
+  nocturne: T({
+    bpm: 140,
+    chords: [
+      [45, 48, 52, 55],
+      [41, 45, 48, 52],
+      [43, 46, 50, 53],
+      [44, 47, 50, 56],
+    ],
+    bass: [21, 17, 19, 20],
+    arpPattern: [0, 2, 1, 3, 2, 0, 3, 1],
+    kick: [0, 4, 8, 10, 12],
+    snare: [4, 12],
+    hat: [2, 6, 10, 14, 15],
+    arpRate: 1,
+    bassStyle: 'drive',
+    arpVol: 0.026,
+    padVol: 0.011,
+  }),
 };
 
 export class AudioEngine {
@@ -469,6 +584,48 @@ export class AudioEngine {
       case 'steam':
         this.noiseBurst(t, 0.9, 0.3 * v, 'highpass', 1800, 900, 0.6, dest, 0.05);
         this.noiseBurst(t, 0.6, 0.15 * v, 'bandpass', 500, 300, 1, verb, 0.05);
+        break;
+      case 'beam':
+        this.tone('sawtooth', 880, 1320, t, 0.12, 0.05 * v, dest);
+        this.noiseBurst(t, 0.15, 0.12 * v, 'bandpass', 3200, 2000, 3, dest);
+        break;
+      case 'phase':
+        this.tone('triangle', 660, 660, t, 0.08, 0.08 * v, dest);
+        this.tone('triangle', 990, 990, t + 0.05, 0.12, 0.06 * v, verb);
+        break;
+      case 'bloom':
+        this.tone('sine', 240, 720, t, 0.22, 0.22 * v, dest, 0.005);
+        this.tone('triangle', 1200, 1600, t + 0.04, 0.3, 0.05 * v, verb);
+        break;
+      case 'switch':
+        this.tone('square', 520, 520, t, 0.05, 0.05 * v, dest);
+        this.tone('square', 780, 780, t + 0.06, 0.05, 0.05 * v, dest);
+        this.tone('sine', 1560, 1560, t + 0.12, 0.3, 0.06 * v, verb);
+        break;
+      case 'pulse':
+        this.tone('sine', 180, 60, t, 0.4, 0.3 * v, dest);
+        this.noiseBurst(t, 0.35, 0.14 * v, 'bandpass', 900, 300, 1.5, verb);
+        break;
+      case 'echo':
+        this.tone('sawtooth', 300, 150, t, 0.5, 0.05 * v, verb, 0.08);
+        this.tone('sine', 600, 300, t, 0.5, 0.06 * v, verb, 0.08);
+        break;
+      case 'wing':
+        this.noiseBurst(t, 0.55, 0.45 * v, 'lowpass', 700, 150, 0.8, dest, 0.08);
+        this.tone('sine', 70, 40, t, 0.4, 0.25 * v, dest, 0.05);
+        break;
+      case 'screech':
+        this.tone('sawtooth', 900, 1500, t, 0.5, 0.08 * v, verb, 0.05);
+        this.tone('square', 1210, 1800, t + 0.04, 0.45, 0.04 * v, dest, 0.05);
+        this.noiseBurst(t, 0.6, 0.2 * v, 'highpass', 3000, 5000, 1, dest, 0.05);
+        break;
+      case 'shatter':
+        this.noiseBurst(t, 0.5, 0.5 * v, 'highpass', 2500, 6000, 0.8, dest);
+        for (let i = 0; i < 4; i++) this.tone('triangle', 2000 + i * 430, 1600 + i * 300, t + i * 0.04, 0.2, 0.04 * v, verb);
+        break;
+      case 'dive':
+        this.tone('sawtooth', 400, 90, t, 0.7, 0.1 * v, dest, 0.05);
+        this.noiseBurst(t, 0.7, 0.3 * v, 'bandpass', 1200, 400, 1, dest, 0.05);
         break;
       case 'boot':
         this.tone('sine', 110, 880, t, 0.6, 0.08 * v, verb, 0.05);

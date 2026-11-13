@@ -9,6 +9,11 @@ export const Mat = {
   Catwalk: 4,
   Rail: 5,
   Crumble: 6,
+  /** Memory phase blocks: A is solid first, B second; they swap on a beat. */
+  PhaseA: 7,
+  PhaseB: 8,
+  /** Hard-light bridge, solid only while its switch is lit. */
+  Bridge: 9,
 } as const;
 export type MatType = (typeof Mat)[keyof typeof Mat];
 
@@ -29,7 +34,7 @@ export interface TriggerDef {
 }
 
 export interface EnemySpawn {
-  kind: 'drone' | 'sentry' | 'trooper';
+  kind: 'drone' | 'sentry' | 'trooper' | 'mine' | 'echo';
   x: number;
   y: number;
 }
@@ -52,16 +57,136 @@ export interface VentDef {
   phase: number;
 }
 
+/** Timed security beam between an emitter and a receiver. */
+export interface LaserDef {
+  x: number;
+  y: number;
+  len: number;
+  dir: 'h' | 'v';
+  on: number;
+  off: number;
+  phase: number;
+}
+
+/** Constant air stream inside a rectangle (px/s² acceleration). */
+export interface FanDef {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  ax: number;
+  ay: number;
+}
+
+/** Hydraulic press: rests at `top`, slams down to `bottom` (head bottom edge). */
+export interface CrusherDef {
+  x: number;
+  top: number;
+  bottom: number;
+  w: number;
+  period: number;
+  phase: number;
+}
+
+/** Rising fluid that starts when the player enters `trigger`. */
+export interface FloodDef {
+  y0: number;
+  y1: number;
+  speed: number;
+  trigger: { x: number; y: number; w: number; h: number };
+}
+
+/** Area with scaled gravity (zero-g pockets in the core). */
+export interface GravityZoneDef {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  scale: number;
+}
+
+/** Gravity well: pulls the airborne player toward a hookable core. */
+export interface WellDef {
+  x: number;
+  y: number;
+  r: number;
+  strength: number;
+}
+
+/** Springy bloom: landing on it launches the player upward. */
+export interface BouncerDef {
+  x: number;
+  y: number;
+  power: number;
+}
+
+/** Hookable switch lighting a hard-light bridge for `duration` seconds. */
+export interface SwitchDef {
+  x: number;
+  y: number;
+  group: number;
+  duration: number;
+}
+
+export interface BridgeDef {
+  x0: number;
+  x1: number;
+  y: number;
+  group: number;
+}
+
+/** Lightning rod: charges, then a bolt strikes it and arcs to its surroundings. */
+export interface RodDef {
+  x: number;
+  y: number;
+  base: number;
+  period: number;
+  phase: number;
+  radius: number;
+}
+
+/** Broadcast emitter: rings of signal that shove the player outward. */
+export interface PulseDef {
+  x: number;
+  y: number;
+  period: number;
+  phase: number;
+  radius: number;
+  force: number;
+}
+
+export type ThemeKey = 'rooftops' | 'market' | 'tower' | 'archive' | 'refinery' | 'core' | 'memory' | 'garden' | 'mast' | 'dawn';
+export type MusicKey = 'stage' | 'market' | 'tower' | 'boss' | 'archive' | 'refinery' | 'core' | 'memory' | 'garden' | 'mast' | 'nocturne';
+export type WeatherKind = 'rain' | 'frost' | 'embers' | 'motes' | 'frozen' | 'petals' | 'none';
+
 export interface LevelData {
   id: string;
   title: string;
   subtitle: string;
-  theme: 'rooftops' | 'market' | 'tower';
-  music: 'stage' | 'market' | 'tower' | 'boss';
+  theme: ThemeKey;
+  music: MusicKey;
   rain: number;
-  boss: boolean;
+  weather: WeatherKind;
+  /** Tile kit name (tiles_<name>.png), '' for the chapter 1 set. */
+  tileset: string;
+  boss: false | 'archivist' | 'nocturne';
+  /** Line under STAGE CLEAR. */
+  clearText: string;
+  /** Seconds between phase-block swaps (0 = none). */
+  phasePeriod: number;
   movers: MoverDef[];
   vents: VentDef[];
+  lasers: LaserDef[];
+  fans: FanDef[];
+  crushers: CrusherDef[];
+  floods: FloodDef[];
+  zones: GravityZoneDef[];
+  wells: WellDef[];
+  bouncers: BouncerDef[];
+  switches: SwitchDef[];
+  bridges: BridgeDef[];
+  rods: RodDef[];
+  pulses: PulseDef[];
   w: number;
   h: number;
   mat: Uint8Array;
@@ -96,9 +221,24 @@ export class LevelBuilder {
       theme: 'rooftops',
       music: 'stage',
       rain: 1,
+      weather: 'rain',
+      tileset: '',
       boss: false,
+      clearText: '',
+      phasePeriod: 0,
       movers: [],
       vents: [],
+      lasers: [],
+      fans: [],
+      crushers: [],
+      floods: [],
+      zones: [],
+      wells: [],
+      bouncers: [],
+      switches: [],
+      bridges: [],
+      rods: [],
+      pulses: [],
       spawn: { x: 0, y: 0 },
       anchors: [],
       checkpoints: [],
@@ -179,6 +319,83 @@ export class LevelBuilder {
     return this;
   }
 
+  /** Chapter 2 look: tile kit + weather kind (density reuses `rain`). */
+  look(tileset: string, weather: WeatherKind, density = 1): this {
+    this.data.tileset = tileset;
+    this.data.weather = weather;
+    this.data.rain = density;
+    return this;
+  }
+
+  clearText(t: string): this {
+    this.data.clearText = t;
+    return this;
+  }
+
+  /** Security beam from tile (tx,ty) running `tiles` tiles right ('h') or down ('v'). */
+  laser(tx: number, ty: number, tiles: number, dir: 'h' | 'v', on = 1.4, off = 1.4, phase = 0): this {
+    this.data.lasers.push({ x: tx * TILE + 8, y: ty * TILE + 8, len: tiles * TILE, dir, on, off, phase });
+    return this;
+  }
+
+  /** Air stream filling an inclusive tile rect. */
+  fan(x0: number, y0: number, x1: number, y1: number, ax: number, ay: number): this {
+    this.data.fans.push({ x: x0 * TILE, y: y0 * TILE, w: (x1 - x0 + 1) * TILE, h: (y1 - y0 + 1) * TILE, ax, ay });
+    return this;
+  }
+
+  /** Press centred on tile column tx, `w` tiles wide, hanging from row `ceil` and slamming onto row `floor`. */
+  crusher(tx: number, ceil: number, floor: number, w = 2, period = 2.6, phase = 0): this {
+    this.data.crushers.push({ x: tx * TILE + (w % 2 ? 8 : 0), top: (ceil + 2) * TILE, bottom: floor * TILE, w: w * TILE, period, phase });
+    return this;
+  }
+
+  flood(fromRow: number, toRow: number, speed: number, tx: number, ty: number, tw: number, th: number): this {
+    this.data.floods.push({ y0: fromRow * TILE, y1: toRow * TILE, speed, trigger: { x: tx * TILE, y: ty * TILE, w: tw * TILE, h: th * TILE } });
+    return this;
+  }
+
+  zeroG(x0: number, y0: number, x1: number, y1: number, scale = 0.3): this {
+    this.data.zones.push({ x: x0 * TILE, y: y0 * TILE, w: (x1 - x0 + 1) * TILE, h: (y1 - y0 + 1) * TILE, scale });
+    return this;
+  }
+
+  well(tx: number, ty: number, rTiles: number, strength = 900): this {
+    this.data.wells.push({ x: tx * TILE + 8, y: ty * TILE + 8, r: rTiles * TILE, strength });
+    return this;
+  }
+
+  /** Bloom standing on top of row ty. */
+  bouncer(tx: number, ty: number, power = 560): this {
+    this.data.bouncers.push({ x: tx * TILE + 8, y: ty * TILE, power });
+    return this;
+  }
+
+  switchNode(tx: number, ty: number, group: number, duration = 6): this {
+    this.data.switches.push({ x: tx * TILE + 8, y: ty * TILE + 8, group, duration });
+    return this;
+  }
+
+  bridge(x0: number, x1: number, y: number, group: number): this {
+    this.data.bridges.push({ x0, x1, y, group });
+    return this.fill(x0, y, x1, y, Mat.Bridge);
+  }
+
+  /** Lightning rod with its tip at row ty and its base on row baseRow. */
+  rod(tx: number, ty: number, baseRow: number, period = 5, phase = 0, radius = 40): this {
+    this.data.rods.push({ x: tx * TILE + 8, y: ty * TILE, base: baseRow * TILE, period, phase, radius });
+    return this;
+  }
+
+  pulse(tx: number, ty: number, period = 3, phase = 0, radius = 110, force = 260): this {
+    this.data.pulses.push({ x: tx * TILE + 8, y: ty * TILE + 8, period, phase, radius, force });
+    return this;
+  }
+
+  phase(x0: number, y0: number, x1: number, y1: number, which: 'A' | 'B'): this {
+    return this.fill(x0, y0, x1, y1, which === 'A' ? Mat.PhaseA : Mat.PhaseB);
+  }
+
   /** Anchor drone shuttling between two tile positions. */
   mover(tx0: number, ty0: number, tx1: number, ty1: number, period = 4, phase = 0): this {
     this.data.movers.push({ x0: tx0 * TILE + 8, y0: ty0 * TILE + 8, x1: tx1 * TILE + 8, y1: ty1 * TILE + 8, period, phase });
@@ -198,7 +415,8 @@ export class LevelBuilder {
   /** Enemy spawn. Drones float at the tile centre; ground units stand on row ty+1. */
   enemy(kind: EnemySpawn['kind'], tx: number, ty: number): this {
     const x = tx * TILE + 8;
-    this.data.enemies.push({ kind, x, y: kind === 'drone' ? ty * TILE + 8 : (ty + 1) * TILE });
+    const floating = kind === 'drone' || kind === 'mine' || kind === 'echo';
+    this.data.enemies.push({ kind, x, y: floating ? ty * TILE + 8 : (ty + 1) * TILE });
     return this;
   }
 

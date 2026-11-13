@@ -84,5 +84,6 @@ export function buildLevel1(): LevelData {
   L.prop('sign:open', 179, 13, { dx: -8, front: true });
   L.enemy('trooper', 189, 8).enemy('drone', 185, 4);
 
+  L.clearText('9구역 봉쇄선 돌파');
   return L.build();
 }

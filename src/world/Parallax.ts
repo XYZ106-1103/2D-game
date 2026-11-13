@@ -2,7 +2,9 @@ import Phaser from 'phaser';
 import { DEPTH, GAME_H, GAME_W } from '../config.ts';
 import { COLORS } from '../art/palette.ts';
 
-export type ThemeName = 'rooftops' | 'market' | 'tower';
+import type { ThemeKey } from './LevelData.ts';
+
+export type ThemeName = ThemeKey;
 
 interface LayerDef {
   key: string;
@@ -71,6 +73,108 @@ export const THEMES: Record<ThemeName, ThemeDef> = {
       { depth: DEPTH.fogBack, fx: 0.3, fy: 0.12, baseY: 200, speed: 12, tint: 0x6a70a0, alpha: 0.28 },
       { depth: DEPTH.fogFront, fx: 1.2, fy: 1.0, baseY: 0, speed: 24, tint: 0x8890c0, alpha: 0.16 },
     ],
+  },
+  archive: {
+    layers: [
+      { key: 'bg-archive_sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-archive_far', depth: DEPTH.far, fx: 0.1, fy: 0.04, baseY: 10 },
+      { key: 'bg-archive_mid', depth: DEPTH.mid, fx: 0.25, fy: 0.1, baseY: 0 },
+      { key: 'bg-archive_near', depth: DEPTH.near, fx: 0.55, fy: 0.25, baseY: -60 },
+    ],
+    cars: 0,
+    beams: false,
+    blinkers: false,
+    fog: [
+      { depth: DEPTH.fogBack, fx: 0.4, fy: 0.25, baseY: 210, speed: 4, tint: 0x46748e, alpha: 0.22 },
+      { depth: DEPTH.fogFront, fx: 1.15, fy: 1.0, baseY: 0, speed: 8, tint: 0x6c9ab0, alpha: 0.14 },
+    ],
+  },
+  refinery: {
+    layers: [
+      { key: 'bg-refinery_sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-refinery_far', depth: DEPTH.far, fx: 0.1, fy: 0.04, baseY: 0 },
+      { key: 'bg-refinery_mid', depth: DEPTH.mid, fx: 0.24, fy: 0.09, baseY: -10 },
+      { key: 'bg-refinery_near', depth: DEPTH.near, fx: 0.5, fy: 0.22, baseY: 20 },
+    ],
+    cars: 0,
+    beams: false,
+    blinkers: false,
+    fog: [
+      { depth: DEPTH.fogBack, fx: 0.4, fy: 0.2, baseY: 200, speed: 5, tint: 0x8a3a2a, alpha: 0.26 },
+      { depth: DEPTH.fogBack, fx: 0.6, fy: 0.3, baseY: 240, speed: -6, tint: 0x8c1a72, alpha: 0.2 },
+      { depth: DEPTH.fogFront, fx: 1.15, fy: 1.0, baseY: 0, speed: 10, tint: 0x5c2a14, alpha: 0.22 },
+    ],
+  },
+  core: {
+    layers: [
+      { key: 'bg-core_sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-core_sphere', depth: DEPTH.spire, fx: 0.03, fy: 0.015, baseY: 20, tile: false, baseX: 250 },
+      { key: 'bg-core_far', depth: DEPTH.far, fx: 0.08, fy: 0.03, baseY: -10 },
+      { key: 'bg-core_mid', depth: DEPTH.mid, fx: 0.2, fy: 0.06, baseY: -20, drift: 3 },
+    ],
+    cars: 0,
+    beams: false,
+    blinkers: false,
+    fog: [
+      { depth: DEPTH.fogBack, fx: 0.3, fy: 0.1, baseY: 220, speed: 3, tint: 0x3c1c78, alpha: 0.22 },
+      { depth: DEPTH.fogFront, fx: 1.15, fy: 1.0, baseY: 0, speed: 6, tint: 0x6030b0, alpha: 0.14 },
+    ],
+  },
+  memory: {
+    layers: [
+      { key: 'bg-memory_sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-memory_far', depth: DEPTH.far, fx: 0.1, fy: 0.06, baseY: 40 },
+      { key: 'bg-memory_mid', depth: DEPTH.mid, fx: 0.25, fy: 0.14, baseY: 70 },
+      { key: 'bg-memory_near', depth: DEPTH.near, fx: 0.5, fy: 0.32, baseY: 110 },
+    ],
+    cars: 0,
+    beams: false,
+    blinkers: false,
+    fog: [
+      { depth: DEPTH.fogBack, fx: 0.4, fy: 0.3, baseY: 200, speed: 0, tint: 0x64646f, alpha: 0.25 },
+      { depth: DEPTH.fogFront, fx: 1.15, fy: 1.0, baseY: 0, speed: 0, tint: 0x82828c, alpha: 0.16 },
+    ],
+  },
+  garden: {
+    layers: [
+      { key: 'bg-garden_sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-garden_far', depth: DEPTH.far, fx: 0.08, fy: 0.04, baseY: 30 },
+      { key: 'bg-garden_mid', depth: DEPTH.mid, fx: 0.22, fy: 0.1, baseY: 10 },
+      { key: 'bg-garden_near', depth: DEPTH.near, fx: 0.5, fy: 0.25, baseY: 0 },
+    ],
+    cars: 0,
+    beams: false,
+    blinkers: false,
+    fog: [
+      { depth: DEPTH.fogBack, fx: 0.4, fy: 0.2, baseY: 220, speed: 3, tint: 0x2a7a6a, alpha: 0.2 },
+      { depth: DEPTH.fogFront, fx: 1.15, fy: 1.0, baseY: 0, speed: 6, tint: 0x46a466, alpha: 0.12 },
+    ],
+  },
+  mast: {
+    layers: [
+      { key: 'bg-mast_sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-mast_far', depth: DEPTH.far, fx: 0.08, fy: 0.03, baseY: 0 },
+      { key: 'bg-mast_clouds', depth: DEPTH.mid - 0.5, fx: 0.12, fy: 0.04, baseY: 150, drift: 14 },
+      { key: 'bg-mast_mid', depth: DEPTH.mid, fx: 0.22, fy: 0.06, baseY: -20 },
+    ],
+    cars: 0,
+    beams: false,
+    blinkers: true,
+    fog: [
+      { depth: DEPTH.fogBack, fx: 0.3, fy: 0.1, baseY: 200, speed: 18, tint: 0x3f4763, alpha: 0.3 },
+      { depth: DEPTH.fogFront, fx: 1.2, fy: 1.0, baseY: 0, speed: 30, tint: 0x5a6585, alpha: 0.18 },
+    ],
+  },
+  dawn: {
+    layers: [
+      { key: 'bg-dawn_sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-dawn_far', depth: DEPTH.far, fx: 0.05, fy: 0.02, baseY: 50 },
+      { key: 'bg-dawn_clouds', depth: DEPTH.mid, fx: 0.1, fy: 0.05, baseY: 160, drift: 3 },
+    ],
+    cars: 0,
+    beams: false,
+    blinkers: false,
+    fog: [{ depth: DEPTH.fogFront, fx: 1.2, fy: 1.0, baseY: 0, speed: 8, tint: 0xf8945a, alpha: 0.14 }],
   },
 };
 
