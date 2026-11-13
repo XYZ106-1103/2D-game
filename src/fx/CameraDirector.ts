@@ -12,7 +12,9 @@ import { clamp, damp, shakeNoise } from '../core/math.ts';
  *
  * Vertical: the camera re-frames only when the player lands; jumps, swings
  * and falls keep the current height unless the player would leave the safe
- * band at the top or bottom of the screen.
+ * band at the top or bottom of the screen. Exception: when a tether node or
+ * a ledge the player has to reach sits just above the view, the camera lifts
+ * a little (CAMERA.lookUpMax) so it stays visible — upward only, any time.
  */
 export class CameraDirector {
   private cam: Phaser.Cameras.Scene2D.Camera;
@@ -27,6 +29,8 @@ export class CameraDirector {
   private wantCX = 0;
   /** Vertical scroll target, refreshed on landing. */
   private wantY = 0;
+  /** Landing framing (before any look-up lift) — the lift budget is measured from it. */
+  private restY = 0;
   private trauma = 0;
   private traumaDur = 0.2;
   private time = 0;
@@ -49,6 +53,7 @@ export class CameraDirector {
     this.wantCX = px + this.lookX;
     this.x = this.wantCX - GAME_W / 2;
     this.wantY = this.lockY ?? feetY - CAMERA.groundScreenY;
+    this.restY = this.wantY;
     this.y = this.wantY;
     this.clampPos();
     this.wantY = this.y;
@@ -60,7 +65,7 @@ export class CameraDirector {
     this.traumaDur = Math.max(0.05, duration);
   }
 
-  update(dt: number, px: number, feetY: number, vx: number, grounded: boolean): void {
+  update(dt: number, px: number, feetY: number, vx: number, grounded: boolean, lookUpY: number | null = null): void {
     this.time += dt;
 
     // --- horizontal: look-ahead point + dead zone ------------------------------
@@ -84,7 +89,13 @@ export class CameraDirector {
     let rate: number = CAMERA.landRate;
     if (this.lockY !== null) this.wantY = this.lockY;
     else {
-      if (grounded) this.wantY = feetY - CAMERA.groundScreenY;
+      if (grounded) this.wantY = this.restY = feetY - CAMERA.groundScreenY;
+      if (lookUpY !== null) {
+        // lift just enough to show the target, within a small budget
+        const base = this.restY;
+        const need = Math.max(lookUpY - CAMERA.lookUpMargin, feetY - CAMERA.lookUpFloor, base - CAMERA.lookUpMax);
+        if (need < this.wantY) this.wantY = need;
+      }
       const chest = feetY - 12;
       const top = this.y + CAMERA.safeTop;
       const bottom = this.y + GAME_H - CAMERA.safeBottom;

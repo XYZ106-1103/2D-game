@@ -88,6 +88,14 @@ export class Player {
   onZipStrike: ((target: AnchorPoint) => void) | null = null;
   private zipT = 0;
   private zipBlocked = 0;
+  /**
+   * Hooking something behind you while still holding the run key: that held
+   * direction is ignored for pumping (it would fight the swing back) until the
+   * key is released or ~1 s passes.
+   */
+  private pumpLock = 0;
+  private pumpLockT = 0;
+  private lastMx = 0;
 
   constructor(scene: Phaser.Scene, world: TileWorld, x: number, y: number, fx: Particles, juice: Juice) {
     this.world = world;
@@ -111,6 +119,9 @@ export class Player {
     this.grapple = new Grapple(scene, world, {
       onAttach: (ax, ay, anchor, nx, ny) => {
         this.airDashes = 1;
+        const away = Math.sign(this.body.x - ax);
+        this.pumpLock = !this.body.onGround && away !== 0 && this.lastMx === away && Math.abs(this.body.x - ax) > 6 ? away : 0;
+        this.pumpLockT = 0;
         this.juice.shake(1.6, 0.09);
         this.juice.sfx('attach', { pitch: anchor ? 1.15 : 1 });
         this.fx.ring(ax, ay, anchor ? COLORS.cyanHot : COLORS.cyan);
@@ -250,6 +261,7 @@ export class Player {
     // buffered fire: a press during cooldown/retract still fires while held
     const wantGrapple = this.grappleBuf > 0 && (grappleHeld || this.grappleBuf > 0.1);
     const mx = locked ? 0 : input.moveX;
+    this.lastMx = mx;
 
     // --- grapple fire / release -------------------------------------------------
     if (wantGrapple && this.grapple.canFire && this.dashT <= 0) {
@@ -415,6 +427,12 @@ export class Player {
       return;
     }
 
+    // a backward hook's held run key unlocks once released (or after a while)
+    if (this.pumpLock !== 0) {
+      this.pumpLockT += dt;
+      if (mx !== this.pumpLock || this.pumpLockT > 1.1 || b.onGround) this.pumpLock = 0;
+    }
+
     let dx = b.x - piv.x;
     let dy = b.y - piv.y;
     let dist = Math.hypot(dx, dy) || 0.001;
@@ -433,7 +451,7 @@ export class Player {
         b.onGround = false;
         this.juice.sfx('jump');
       }
-    } else if (mx !== 0) {
+    } else if (mx !== 0 && mx !== this.pumpLock) {
       // pumping: accelerate along the tangent in the input direction
       let tx = -ny;
       let ty = nx;
@@ -446,7 +464,7 @@ export class Player {
       b.vx += tx * a * dt;
       b.vy += ty * a * dt;
     }
-    if (mx !== 0) this.facing = mx;
+    if (mx !== 0 && mx !== this.pumpLock) this.facing = mx;
     else if (Math.abs(b.vx) > 30) this.facing = sign(b.vx);
 
     // reel in / out (keys + wheel)
@@ -583,6 +601,7 @@ export class Player {
 
   releaseRope(jump: boolean): void {
     if (!this.grapple.busy) return;
+    this.pumpLock = 0;
     const wasAttached = this.grapple.attached;
     this.grapple.release();
     if (!wasAttached) return;

@@ -86,6 +86,12 @@ export const CAMERA = {
   safeTop: 48,
   safeBottom: 56,
   safeRate: 14,
+  /** Lift the view (at most this far) so a node or ledge above stays visible. */
+  lookUpMax: 52,
+  /** Keep the thing being looked at this far below the top edge. */
+  lookUpMargin: 26,
+  /** Never push the player's feet lower than this on screen when lifting. */
+  lookUpFloor: 234,
 } as const;
 
 export const DEPTH = {

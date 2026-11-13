@@ -454,7 +454,7 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.stats.kills = this.combat.kills;
     this.stats.bestCombo = this.combat.bestCombo;
     const b = this.player.body;
-    this.cam.update(real, this.player.sprite.x, this.player.sprite.y, b.vx, b.onGround && !this.player.dead);
+    this.cam.update(real, this.player.sprite.x, this.player.sprite.y, b.vx, b.onGround && !this.player.dead, this.lookUpTarget());
     this.parallax.update(real, cam.scrollX, cam.scrollY);
     this.weather.update(real, cam.scrollX, cam.scrollY);
     this.particles.update(real * this.timeScale);
@@ -464,6 +464,34 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.updateDeath(real);
     this.updatePost(real);
     if (this.dev) this.devKeys();
+  }
+
+  /**
+   * Highest point the player will probably need to see above them: a tether
+   * node within hook reach, or a ledge within a jump / short swing. null when
+   * nothing above matters (or the camera is locked for a boss).
+   */
+  private lookUpTarget(): number | null {
+    const p = this.player;
+    if (p.dead || this.state !== 'play' || this.boss) return null;
+    const fy = p.feetY;
+    const px = p.x;
+    let best: number | null = null;
+    for (const a of this.hookTargets) {
+      if (a.isEnemy || a.alive === false) continue;
+      if (fy - a.y < 60 || Math.abs(a.x - px) > 200) continue;
+      if (Math.hypot(a.x - px, a.y - (p.y - 10)) > HOOK.maxLen + 30) continue;
+      const y = a.y - 8;
+      if (best === null || y < best) best = y;
+    }
+    for (const sf of this.level.surfaces) {
+      if (sf.y > fy - 44 || sf.y < fy - 150) continue;
+      if (sf.x1 < px - 96 || sf.x0 > px + 96) continue;
+      // show the ledge plus the player's height standing on it
+      const y = sf.y - 26;
+      if (best === null || y < best) best = y;
+    }
+    return best;
   }
 
   private computeAim(cam: Phaser.Cameras.Scene2D.Camera): { x: number; y: number } {
