@@ -34,26 +34,31 @@ export class EndingScene extends Phaser.Scene {
   private canLeave = false;
   private titleObjs: Phaser.GameObjects.GameObject[] = [];
   private chapter = 2;
+  private ending: 'good' | 'bad' = 'good';
   private nextStage = 0;
   private carry: string[] = [];
   private lines: { t: string; c: number }[] = [];
+  private band: Phaser.GameObjects.Rectangle | null = null;
 
   constructor() {
     super('Ending');
   }
 
-  init(data: { chapter?: number; next?: number; carry?: string[] }): void {
+  init(data: { chapter?: number; next?: number; carry?: string[]; ending?: 'good' | 'bad' }): void {
+    this.ending = data.ending ?? 'good';
     const run = (this.registry.get('run') as RunStats | undefined) ?? { time: 0, deaths: 0, kills: 0, bestCombo: 0, logs: [] };
     this.stats = { ...run, logs: run.logs ?? [] };
     this.chapter = data.chapter ?? 2;
     this.nextStage = data.next ?? 0;
     this.carry = data.carry ?? this.stats.logs;
-    this.lines = (this.chapter === 1 ? EPILOGUE.ch1 : EPILOGUE.ch2).map((l) => ({ t: l.t, c: TONE[l.c] ?? COLORS.uiText }));
+    const src = this.chapter === 1 ? EPILOGUE.ch1 : this.chapter === 2 ? EPILOGUE.ch2 : this.ending === 'good' ? EPILOGUE.good : EPILOGUE.bad;
+    this.lines = src.map((l) => ({ t: l.t, c: TONE[l.c] ?? COLORS.uiText }));
     this.idx = -1;
     this.wait = 1.4;
     this.phase = 'lines';
     this.elapsed = 0;
     this.canLeave = false;
+    this.band = null;
   }
 
   create(): void {
@@ -61,15 +66,23 @@ export class EndingScene extends Phaser.Scene {
     if (this.chapter === 1) {
       this.spire = this.add.image(GAME_W / 2, 10, 'bg-spire').setOrigin(0.5, 0).setAlpha(0).setTint(0x8c1a72);
       this.weather = new Weather(this, [], () => undefined, () => undefined, 0.6);
-    } else {
+    } else if (this.chapter === 2) {
       this.spire = this.add.image(0, 0, 'bg-dawn_sky').setOrigin(0, 0).setAlpha(0);
       this.weather = new Weather(this, [], () => undefined, () => undefined, 0.5, false, 'petals');
+    } else if (this.ending === 'good') {
+      this.spire = this.add.image(0, 0, 'bg-sunroof_sky').setOrigin(0, 0).setAlpha(0);
+      this.weather = new Weather(this, [], () => undefined, () => undefined, 0.6, false, 'dust');
+      // the morning sky gets bright: a soft band keeps the epilogue readable
+      this.band = this.add.rectangle(GAME_W / 2, 62 + 4 * 22, GAME_W, 9 * 22 + 20, 0x05030a, 0.42);
+    } else {
+      this.spire = this.add.image(0, 0, 'bg-vesper_sky').setOrigin(0, 0).setAlpha(0);
+      this.weather = new Weather(this, [], () => undefined, () => undefined, 0.9, false, 'rain');
     }
     if (this.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer) {
       this.cameras.main.setPostPipeline('NeonPostFX');
       (this.cameras.main.getPostPipeline('NeonPostFX') as NeonPostFX).vignette = 0.85;
     }
-    audio.playMusic('title');
+    audio.playMusic(this.chapter === 3 ? (this.ending === 'good' ? 'end_good' : 'end_bad') : 'title');
     const adv = () => this.advance();
     this.input.keyboard!.on('keydown-SPACE', adv);
     this.input.keyboard!.on('keydown-ENTER', adv);
@@ -97,27 +110,45 @@ export class EndingScene extends Phaser.Scene {
   private showTitle(): void {
     this.phase = 'title';
     this.children.list.filter((o) => o instanceof Phaser.GameObjects.BitmapText).forEach((o) => this.tweens.add({ targets: o, alpha: 0, duration: 900 }));
+    if (this.band) this.tweens.add({ targets: this.band, alpha: 0, duration: 1400 });
     this.time.delayedCall(1000, () => {
-      const logo = this.add.image(GAME_W / 2, 92, 'ui', 'logo').setAlpha(0);
-      const first = this.chapter === 1;
-      const a = text(this, 0, 118, first ? 'CHAPTER 1 — 끝' : 'CHAPTER 2 — 끝', 'galmuri11b', COLORS.white);
-      a.x = Math.round((GAME_W - a.width) / 2);
-      const b = text(this, 0, 138, first ? 'CHAPTER 2: 첨탑의 심장' : '그 한 시간은, 이제 모두의 것이다.', 'galmuri9', first ? COLORS.magenta : COLORS.amberHot);
-      b.x = Math.round((GAME_W - b.width) / 2);
-      a.setAlpha(0);
-      b.setAlpha(0);
-      this.titleObjs = [logo, a, b];
-      this.tweens.add({ targets: [logo, a, b], alpha: 1, duration: 1400 });
-      audio.play('clear', { vol: 0.8 });
-      if (first) {
-        // straight on into chapter 2
-        this.time.delayedCall(4200, () => {
-          audio.stopMusic(1.2);
-          this.cameras.main.fadeOut(1000, 5, 3, 10);
-          this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => this.scene.start('Game', { stage: this.nextStage, carry: this.carry }));
-        });
-      } else this.time.delayedCall(3800, () => this.showStats());
+      const interlude = this.chapter < 3;
+      const head = interlude ? `CHAPTER ${this.chapter} — 끝` : this.ending === 'good' ? 'ENDING — 열쇠의 아침' : 'BAD END — 고정된 도시';
+      const sub = this.chapter === 1 ? 'CHAPTER 2: 첨탑의 심장' : this.chapter === 2 ? 'CHAPTER 3: 깨어난 도시' : this.ending === 'good' ? 'TETHERFALL — 끝' : '다른 선택이 있었을지도 모른다.';
+      const subCol = this.chapter === 1 ? COLORS.magenta : this.chapter === 2 ? COLORS.amberHot : this.ending === 'good' ? COLORS.amberHot : COLORS.uiDim;
+      if (this.chapter === 3 && this.ending === 'bad') {
+        // the new Archivist, alone on the tower in the rain
+        const ion = this.add.sprite(GAME_W / 2, 200, 'player', 0).setAlpha(0).setTint(0x4a4a56);
+        const card = text(this, 0, 150, '기록관', 'galmuri11b', COLORS.crimsonHot);
+        card.x = Math.round((GAME_W - card.width) / 2);
+        card.setAlpha(0);
+        this.tweens.add({ targets: [ion, card], alpha: 1, duration: 1600 });
+        this.time.delayedCall(3400, () => this.tweens.add({ targets: [ion, card], alpha: 0, duration: 900 }));
+        this.time.delayedCall(4400, () => this.titleCard(head, sub, subCol, false));
+        return;
+      }
+      this.titleCard(head, sub, subCol, interlude);
     });
+  }
+
+  private titleCard(head: string, sub: string, subCol: number, interlude: boolean): void {
+    const logo = this.add.image(GAME_W / 2, 92, 'ui', 'logo').setAlpha(0);
+    const a = text(this, 0, 118, head, 'galmuri11b', COLORS.white);
+    a.x = Math.round((GAME_W - a.width) / 2);
+    const b = text(this, 0, 138, sub, 'galmuri9', subCol);
+    b.x = Math.round((GAME_W - b.width) / 2);
+    a.setAlpha(0);
+    b.setAlpha(0);
+    this.titleObjs = [logo, a, b];
+    this.tweens.add({ targets: [logo, a, b], alpha: 1, duration: 1400 });
+    audio.play(this.chapter === 3 && this.ending === 'bad' ? 'thunder' : 'clear', { vol: 0.8 });
+    if (interlude) {
+      this.time.delayedCall(4200, () => {
+        audio.stopMusic(1.2);
+        this.cameras.main.fadeOut(1000, 5, 3, 10);
+        this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => this.scene.start('Game', { stage: this.nextStage, carry: this.carry }));
+      });
+    } else this.time.delayedCall(3800, () => this.showStats());
   }
 
   private showStats(): void {
@@ -175,7 +206,7 @@ export class EndingScene extends Phaser.Scene {
     const dt = Math.min(deltaMs / 1000, 1 / 20);
     this.elapsed += dt;
     this.weather.update(dt, 0, 0);
-    this.spire.setAlpha(Math.min(this.chapter === 1 ? 0.45 : 0.85, this.elapsed * (this.chapter === 1 ? 0.03 : 0.06)));
+    this.spire.setAlpha(Math.min(this.chapter === 1 ? 0.45 : this.ending === 'bad' && this.chapter === 3 ? 0.5 : 0.85, this.elapsed * (this.chapter === 1 ? 0.03 : 0.06)));
     if (this.phase !== 'lines') return;
     this.tw?.update(dt);
     if (!this.tw || this.tw.done) {

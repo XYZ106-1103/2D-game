@@ -13,9 +13,14 @@ import { trooperAnims, droneAnims, sentrySprites, combatFx } from './art/enemies
 import { marketTheme, towerTheme } from './art/themes.ts';
 import { buildBoss } from './art/boss.ts';
 import { KITS } from './art/kits.ts';
+import { KITS3 } from './art/kits3.ts';
 import { CHAPTER2_BG } from './art/themes2.ts';
 import { buildProps2 } from './art/props2.ts';
 import { buildBoss2 } from './art/boss2.ts';
+import { buildProps3 } from './art/props3.ts';
+import { buildNpcs } from './art/npcs.ts';
+import { buildBoss3 } from './art/boss3.ts';
+import { CHAPTER3_BG } from './art/themes3.ts';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const OUT = join(ROOT, 'public/assets');
@@ -33,7 +38,7 @@ save('sprites/player.png', player.canvas);
 writeJSON(join(OUT, 'sprites/player.json'), player.json);
 
 save('sprites/tiles.png', buildTileset());
-for (const [name, kit] of Object.entries(KITS)) save(`sprites/tiles_${name}.png`, buildTileset(kit));
+for (const [name, kit] of Object.entries({ ...KITS, ...KITS3 })) save(`sprites/tiles_${name}.png`, buildTileset(kit));
 
 save('bg/sky.png', sky());
 save('bg/spire.png', spire());
@@ -41,7 +46,7 @@ save('bg/far.png', farLayer());
 save('bg/mid.png', midLayer());
 save('bg/near.png', nearLayer());
 save('bg/fog.png', fogStrip());
-for (const [file, c] of Object.entries({ ...marketTheme(), ...towerTheme(), ...CHAPTER2_BG() })) save(`bg/${file}`, c);
+for (const [file, c] of Object.entries({ ...marketTheme(), ...towerTheme(), ...CHAPTER2_BG(), ...CHAPTER3_BG() })) save(`bg/${file}`, c);
 
 // enemies: trooper sheet (48×48 frames + anim table) and an atlas for the rest
 {
@@ -68,6 +73,9 @@ for (const [name, items, width] of [
   ['props', buildProps(), 256],
   ['ch2', buildProps2(), 512],
   ['boss2', buildBoss2(), 1024],
+  ['ch3', buildProps3(), 512],
+  ['npcs', buildNpcs(), 256],
+  ['boss3', buildBoss3(), 512],
   ['fx', buildFx(), 256],
   ['ui', buildUi(), 256],
 ] as const) {

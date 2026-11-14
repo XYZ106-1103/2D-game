@@ -226,6 +226,185 @@ const TRACKS: Record<string, Track> = {
     arpVol: 0.026,
     padVol: 0.011,
   }),
+  // --- chapter 3: one day in the waking city ---------------------------------------
+  sunroof: T({
+    bpm: 100,
+    chords: [
+      [60, 64, 67, 72],
+      [55, 59, 62, 67],
+      [57, 60, 64, 69],
+      [53, 57, 60, 65],
+    ],
+    bass: [36, 31, 33, 29],
+    arpPattern: [0, 1, 2, 3, 2, 1, 0, 2],
+    kick: [0, 8],
+    hat: [4, 12],
+    arpRate: 2,
+    bassStyle: 'pulse',
+    arpVol: 0.03,
+  }),
+  drowned: T({
+    bpm: 80,
+    chords: [
+      [57, 62, 64, 69],
+      [55, 60, 62, 67],
+      [53, 57, 62, 64],
+      [52, 57, 59, 64],
+    ],
+    bass: [33, 31, 29, 28],
+    arpPattern: [0, 3, 1, 2, 3, 0, 2, 1],
+    arpRate: 1,
+    bassStyle: 'long',
+    arpVol: 0.022,
+    padVol: 0.014,
+  }),
+  avenue: T({
+    bpm: 112,
+    chords: [
+      [57, 60, 64, 67],
+      [53, 57, 60, 64],
+      [55, 58, 62, 65],
+      [52, 55, 59, 62],
+    ],
+    bass: [33, 29, 31, 28],
+    arpPattern: [0, 2, 0, 3, 1, 2, 1, 3],
+    kick: [0, 7, 10],
+    snare: [4, 12],
+    hat: [2, 6, 10, 14],
+    arpRate: 2,
+    bassStyle: 'drive',
+    arpVol: 0.026,
+  }),
+  transit: T({
+    bpm: 128,
+    chords: [
+      [52, 56, 59, 64],
+      [49, 52, 56, 61],
+      [54, 57, 61, 66],
+      [51, 54, 59, 63],
+    ],
+    bass: [28, 25, 30, 27],
+    arpPattern: [0, 1, 2, 3, 2, 3, 1, 2],
+    kick: [0, 4, 8, 12],
+    snare: [4, 12],
+    hat: [2, 6, 10, 14],
+    arpRate: 1,
+    bassStyle: 'drive',
+    arpVol: 0.024,
+  }),
+  lab: T({
+    bpm: 96,
+    chords: [
+      [53, 57, 60, 64],
+      [55, 59, 62, 66],
+      [52, 55, 59, 64],
+      [50, 54, 57, 62],
+    ],
+    bass: [29, 31, 28, 26],
+    arpPattern: [0, 2, 3, 1, 2, 3, 0, 3],
+    kick: [0, 10],
+    hat: [3, 7, 11, 15],
+    arpRate: 2,
+    bassStyle: 'pulse',
+    arpVol: 0.028,
+  }),
+  harbor: T({
+    bpm: 90,
+    chords: [
+      [57, 61, 64, 68],
+      [54, 57, 61, 64],
+      [50, 54, 57, 61],
+      [52, 56, 59, 62],
+    ],
+    bass: [33, 30, 26, 28],
+    arpPattern: [0, 1, 2, 1, 3, 2, 1, 2],
+    kick: [0, 8],
+    hat: [6, 14],
+    arpRate: 2,
+    bassStyle: 'long',
+    arpVol: 0.03,
+    padVol: 0.014,
+  }),
+  clock: T({
+    bpm: 104,
+    chords: [
+      [50, 53, 57, 62],
+      [48, 52, 55, 60],
+      [46, 50, 53, 58],
+      [45, 49, 52, 57],
+    ],
+    bass: [26, 24, 22, 21],
+    arpPattern: [0, 3, 1, 3, 2, 3, 1, 3],
+    kick: [0, 8],
+    snare: [12],
+    hat: [0, 2, 4, 6, 8, 10, 12, 14],
+    arpRate: 2,
+    bassStyle: 'pulse',
+    arpVol: 0.026,
+  }),
+  hub: T({
+    bpm: 72,
+    chords: [
+      [60, 64, 67, 71],
+      [57, 60, 64, 67],
+      [62, 65, 69, 72],
+      [55, 59, 62, 65],
+    ],
+    bass: [36, 33, 38, 31],
+    arpPattern: [0, 2, 1, 3, 2, 1, 3, 2],
+    arpRate: 2,
+    bassStyle: 'long',
+    arpVol: 0.025,
+    padVol: 0.013,
+  }),
+  vesper: T({
+    bpm: 136,
+    chords: [
+      [50, 53, 57, 60],
+      [46, 50, 53, 57],
+      [48, 51, 55, 58],
+      [45, 49, 52, 55],
+    ],
+    bass: [26, 22, 24, 21],
+    arpPattern: [0, 1, 2, 3, 1, 2, 3, 2],
+    kick: [0, 3, 6, 8, 11, 14],
+    snare: [4, 12],
+    hat: [1, 3, 5, 7, 9, 11, 13, 15],
+    arpRate: 1,
+    bassStyle: 'drive',
+    arpVol: 0.026,
+    padVol: 0.011,
+  }),
+  end_good: T({
+    bpm: 84,
+    chords: [
+      [60, 64, 67, 72],
+      [65, 69, 72, 76],
+      [57, 60, 64, 69],
+      [62, 65, 69, 74],
+    ],
+    bass: [36, 41, 33, 38],
+    arpPattern: [0, 1, 2, 3, 2, 1, 2, 3],
+    arpRate: 2,
+    bassStyle: 'long',
+    arpVol: 0.03,
+    padVol: 0.014,
+  }),
+  end_bad: T({
+    bpm: 62,
+    chords: [
+      [57, 60, 64, 67],
+      [53, 56, 60, 63],
+      [55, 58, 62, 65],
+      [52, 55, 58, 62],
+    ],
+    bass: [33, 29, 31, 28],
+    arpPattern: [0, 2, 1, 3],
+    arpRate: 4,
+    bassStyle: 'long',
+    arpVol: 0.022,
+    padVol: 0.012,
+  }),
 };
 
 export class AudioEngine {
@@ -626,6 +805,39 @@ export class AudioEngine {
       case 'dive':
         this.tone('sawtooth', 400, 90, t, 0.7, 0.1 * v, dest, 0.05);
         this.noiseBurst(t, 0.7, 0.3 * v, 'bandpass', 1200, 400, 1, dest, 0.05);
+        break;
+      case 'zipline':
+        this.noiseBurst(t, 0.5, 0.18 * v, 'bandpass', 2600, 4200, 4, dest, 0.02);
+        this.tone('triangle', 900, 1400, t, 0.4, 0.04 * v, dest);
+        break;
+      case 'splash':
+        this.noiseBurst(t, 0.45, 0.4 * v, 'lowpass', 2400, 300, 0.7, dest);
+        this.noiseBurst(t + 0.05, 0.3, 0.15 * v, 'highpass', 3000, 5000, 1, verb);
+        break;
+      case 'swim':
+        this.noiseBurst(t, 0.22, 0.18 * v, 'lowpass', 900, 300, 1, dest, 0.03);
+        break;
+      case 'alarm':
+        for (let i = 0; i < 3; i++) {
+          this.tone('square', 880, 660, t + i * 0.32, 0.28, 0.06 * v, dest);
+          this.tone('square', 660, 880, t + i * 0.32 + 0.14, 0.14, 0.05 * v, dest);
+        }
+        break;
+      case 'horn':
+        this.tone('sawtooth', 220, 210, t, 0.7, 0.09 * v, dest, 0.04);
+        this.tone('sawtooth', 277, 265, t, 0.7, 0.07 * v, dest, 0.04);
+        break;
+      case 'portal':
+        this.tone('sine', 300, 1200, t, 0.25, 0.18 * v, dest, 0.01);
+        this.tone('sine', 1200, 300, t + 0.12, 0.25, 0.1 * v, verb, 0.01);
+        break;
+      case 'scrape':
+        this.noiseBurst(t, 0.12, 0.2 * v, 'bandpass', 700, 500, 2, dest);
+        break;
+      case 'lantern':
+        this.tone('sine', 523, 523, t, 0.5, 0.12 * v, verb, 0.01);
+        this.tone('sine', 784, 784, t + 0.08, 0.6, 0.1 * v, verb, 0.01);
+        this.tone('sine', 1047, 1047, t + 0.16, 0.8, 0.08 * v, verb, 0.01);
         break;
       case 'boot':
         this.tone('sine', 110, 880, t, 0.6, 0.08 * v, verb, 0.05);

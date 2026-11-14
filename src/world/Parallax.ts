@@ -176,6 +176,116 @@ export const THEMES: Record<ThemeName, ThemeDef> = {
     blinkers: false,
     fog: [{ depth: DEPTH.fogFront, fx: 1.2, fy: 1.0, baseY: 0, speed: 8, tint: 0xf8945a, alpha: 0.14 }],
   },
+  sunroof: {
+    layers: [
+      { key: 'bg-sunroof_sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-sunroof_far', depth: DEPTH.far, fx: 0.08, fy: 0.03, baseY: -10 },
+      { key: 'bg-sunroof_mid', depth: DEPTH.mid, fx: 0.25, fy: 0.1, baseY: 10 },
+      { key: 'bg-sunroof_near', depth: DEPTH.near, fx: 0.55, fy: 0.25, baseY: -30 },
+    ],
+    cars: 0,
+    beams: false,
+    blinkers: false,
+    fog: [
+      { depth: DEPTH.fogBack, fx: 0.4, fy: 0.2, baseY: 220, speed: 4, tint: 0xf4dc8a, alpha: 0.1 },
+    ],
+  },
+  drowned: {
+    layers: [
+      { key: 'bg-drowned_sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-drowned_far', depth: DEPTH.far, fx: 0.08, fy: 0.03, baseY: -20 },
+      { key: 'bg-drowned_mid', depth: DEPTH.mid, fx: 0.22, fy: 0.08, baseY: -10 },
+      { key: 'bg-drowned_near', depth: DEPTH.near, fx: 0.5, fy: 0.2, baseY: -30 },
+    ],
+    cars: 0,
+    beams: false,
+    blinkers: false,
+    fog: [
+      { depth: DEPTH.fogBack, fx: 0.4, fy: 0.2, baseY: 220, speed: 3, tint: 0x46a4b4, alpha: 0.16 },
+      { depth: DEPTH.fogFront, fx: 1.15, fy: 1.0, baseY: 0, speed: 6, tint: 0x7cdce8, alpha: 0.1 },
+    ],
+  },
+  avenue: {
+    layers: [
+      { key: 'bg-avenue_sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-avenue_far', depth: DEPTH.far, fx: 0.08, fy: 0.03, baseY: -30 },
+      { key: 'bg-avenue_mid', depth: DEPTH.mid, fx: 0.22, fy: 0.08, baseY: -20 },
+      { key: 'bg-avenue_near', depth: DEPTH.near, fx: 0.5, fy: 0.2, baseY: -10 },
+    ],
+    cars: 0,
+    beams: false,
+    blinkers: false,
+    fog: [
+      { depth: DEPTH.fogBack, fx: 0.4, fy: 0.2, baseY: 230, speed: 3, tint: 0xdceef8, alpha: 0.08 },
+    ],
+  },
+  transit: {
+    layers: [
+      { key: 'bg-transit_sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-transit_far', depth: DEPTH.far, fx: 0.08, fy: 0.03, baseY: -20 },
+      { key: 'bg-transit_mid', depth: DEPTH.mid, fx: 0.22, fy: 0.08, baseY: 10 },
+      { key: 'bg-transit_near', depth: DEPTH.near, fx: 0.5, fy: 0.2, baseY: -20 },
+    ],
+    cars: 0,
+    beams: false,
+    blinkers: false,
+    fog: [
+      { depth: DEPTH.fogBack, fx: 0.4, fy: 0.2, baseY: 230, speed: 4, tint: 0xe8c8a4, alpha: 0.1 },
+    ],
+  },
+  lab: {
+    layers: [
+      { key: 'bg-lab_sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-lab_far', depth: DEPTH.far, fx: 0.1, fy: 0.04, baseY: -30 },
+      { key: 'bg-lab_mid', depth: DEPTH.mid, fx: 0.25, fy: 0.1, baseY: 0 },
+    ],
+    cars: 0,
+    beams: false,
+    blinkers: false,
+    fog: [
+      { depth: DEPTH.fogBack, fx: 0.4, fy: 0.2, baseY: 240, speed: 2, tint: 0xdceef8, alpha: 0.06 },
+    ],
+  },
+  harbor: {
+    layers: [
+      { key: 'bg-harbor_sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-harbor_far', depth: DEPTH.far, fx: 0.06, fy: 0.02, baseY: 0 },
+      { key: 'bg-harbor_mid', depth: DEPTH.mid, fx: 0.2, fy: 0.06, baseY: -10 },
+    ],
+    cars: 0,
+    beams: false,
+    blinkers: false,
+    fog: [
+      { depth: DEPTH.fogBack, fx: 0.4, fy: 0.15, baseY: 220, speed: 6, tint: 0xf09a5a, alpha: 0.14 },
+    ],
+  },
+  clock: {
+    layers: [
+      { key: 'bg-clock_sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-clock_far', depth: DEPTH.far, fx: 0.08, fy: 0.03, baseY: -20 },
+      { key: 'bg-clock_mid', depth: DEPTH.mid, fx: 0.2, fy: 0.06, baseY: -10 },
+    ],
+    cars: 0,
+    beams: false,
+    blinkers: false,
+    fog: [
+      { depth: DEPTH.fogBack, fx: 0.4, fy: 0.15, baseY: 220, speed: 4, tint: 0x7e406a, alpha: 0.14 },
+    ],
+  },
+  vesper: {
+    layers: [
+      { key: 'bg-vesper_sky', depth: DEPTH.sky, fx: 0, fy: 0, baseY: 0, tile: false },
+      { key: 'bg-vesper_far', depth: DEPTH.far, fx: 0.05, fy: 0.02, baseY: -10 },
+      { key: 'bg-vesper_mid', depth: DEPTH.mid, fx: 0.15, fy: 0.05, baseY: 10 },
+    ],
+    cars: 0,
+    beams: false,
+    blinkers: false,
+    fog: [
+      { depth: DEPTH.fogBack, fx: 0.3, fy: 0.1, baseY: 220, speed: 8, tint: 0x4a2252, alpha: 0.2 },
+      { depth: DEPTH.fogFront, fx: 1.2, fy: 1.0, baseY: 0, speed: 14, tint: 0x6a2a56, alpha: 0.12 },
+    ],
+  },
 };
 
 interface Layer {

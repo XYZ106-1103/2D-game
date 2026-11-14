@@ -34,7 +34,7 @@ export interface TriggerDef {
 }
 
 export interface EnemySpawn {
-  kind: 'drone' | 'sentry' | 'trooper' | 'mine' | 'echo';
+  kind: 'drone' | 'sentry' | 'trooper' | 'mine' | 'echo' | 'watcher';
   x: number;
   y: number;
 }
@@ -155,9 +155,117 @@ export interface PulseDef {
   force: number;
 }
 
-export type ThemeKey = 'rooftops' | 'market' | 'tower' | 'archive' | 'refinery' | 'core' | 'memory' | 'garden' | 'mast' | 'dawn';
-export type MusicKey = 'stage' | 'market' | 'tower' | 'boss' | 'archive' | 'refinery' | 'core' | 'memory' | 'garden' | 'mast' | 'nocturne';
-export type WeatherKind = 'rain' | 'frost' | 'embers' | 'motes' | 'frozen' | 'petals' | 'none';
+// --- chapter 3 ----------------------------------------------------------------
+
+/** Cable you can hook and slide along (zip line). */
+export interface CableDef {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+/** Water volume: buoyancy, drag and an optional current (px/s²). */
+export interface WaterDef {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  cx: number;
+  cy: number;
+}
+
+/** Sweeping searchlight; a sustained sighting raises the alarm. */
+export interface LightDef {
+  x: number;
+  y: number;
+  a0: number;
+  a1: number;
+  period: number;
+  range: number;
+  width: number;
+  phase: number;
+}
+
+/** Cells that slam shut while the alarm is up (inclusive tile rect). */
+export interface ShutterDef {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+/** Train on a straight track; cars are moving platforms, the body hurts. */
+export interface TrainDef {
+  y: number;
+  x0: number;
+  x1: number;
+  speed: number;
+  cars: number;
+  carW: number;
+  period: number;
+  phase: number;
+}
+
+/** Static hazard rect (signal gantry over the track). */
+export interface GantryDef {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export type Facing = 'L' | 'R' | 'U' | 'D';
+/** Pair of momentum-preserving gates. */
+export interface PortalDef {
+  ax: number;
+  ay: number;
+  an: Facing;
+  bx: number;
+  by: number;
+  bn: Facing;
+}
+
+/** Cargo crate standing on row ty (bottom = y). */
+export interface CrateDef {
+  x: number;
+  y: number;
+}
+
+/** Platforms orbiting an axle. */
+export interface RotorDef {
+  cx: number;
+  cy: number;
+  r: number;
+  n: number;
+  speed: number;
+  w: number;
+}
+
+/** Swinging weight you can hook (moving anchor on an arc). */
+export interface PendulumDef {
+  px: number;
+  py: number;
+  len: number;
+  amp: number;
+  period: number;
+  phase: number;
+}
+
+/** Hub character: talk with [W]/[↑]. */
+export interface NpcDef {
+  x: number;
+  y: number;
+  id: string;
+  name: string;
+  dialog: string;
+  required: boolean;
+  face: number;
+}
+
+export type ThemeKey = 'rooftops' | 'market' | 'tower' | 'archive' | 'refinery' | 'core' | 'memory' | 'garden' | 'mast' | 'dawn' | 'sunroof' | 'drowned' | 'avenue' | 'transit' | 'lab' | 'harbor' | 'clock' | 'vesper';
+export type MusicKey = 'stage' | 'market' | 'tower' | 'boss' | 'archive' | 'refinery' | 'core' | 'memory' | 'garden' | 'mast' | 'nocturne' | 'sunroof' | 'drowned' | 'avenue' | 'transit' | 'lab' | 'harbor' | 'clock' | 'hub' | 'vesper';
+export type WeatherKind = 'rain' | 'frost' | 'embers' | 'motes' | 'frozen' | 'petals' | 'none' | 'dust' | 'gulls' | 'leaves';
 
 export interface LevelData {
   id: string;
@@ -169,7 +277,9 @@ export interface LevelData {
   weather: WeatherKind;
   /** Tile kit name (tiles_<name>.png), '' for the chapter 1 set. */
   tileset: string;
-  boss: false | 'archivist' | 'nocturne';
+  boss: false | 'archivist' | 'nocturne' | 'vesper';
+  /** Safe hub: no timer pressure, NPCs to talk to; exit opens after required talks. */
+  hub: boolean;
   /** Line under STAGE CLEAR. */
   clearText: string;
   /** Seconds between phase-block swaps (0 = none). */
@@ -187,6 +297,17 @@ export interface LevelData {
   bridges: BridgeDef[];
   rods: RodDef[];
   pulses: PulseDef[];
+  cables: CableDef[];
+  water: WaterDef[];
+  lights: LightDef[];
+  shutters: ShutterDef[];
+  trains: TrainDef[];
+  gantries: GantryDef[];
+  portals: PortalDef[];
+  crates: CrateDef[];
+  rotors: RotorDef[];
+  pendulums: PendulumDef[];
+  npcs: NpcDef[];
   w: number;
   h: number;
   mat: Uint8Array;
@@ -239,6 +360,18 @@ export class LevelBuilder {
       bridges: [],
       rods: [],
       pulses: [],
+      cables: [],
+      water: [],
+      lights: [],
+      shutters: [],
+      trains: [],
+      gantries: [],
+      portals: [],
+      crates: [],
+      rotors: [],
+      pendulums: [],
+      npcs: [],
+      hub: false,
       spawn: { x: 0, y: 0 },
       anchors: [],
       checkpoints: [],
@@ -392,6 +525,75 @@ export class LevelBuilder {
     return this;
   }
 
+  // --- chapter 3 builders (tile coordinates) -------------------------------------
+
+  /** Cable between two tile centres. */
+  cable(tx0: number, ty0: number, tx1: number, ty1: number): this {
+    this.data.cables.push({ x0: tx0 * TILE + 8, y0: ty0 * TILE + 8, x1: tx1 * TILE + 8, y1: ty1 * TILE + 8 });
+    return this;
+  }
+
+  /** Water filling an inclusive tile rect; surface on the top edge of row y0. */
+  pool(x0: number, y0: number, x1: number, y1: number, cx = 0, cy = 0): this {
+    this.data.water.push({ x: x0 * TILE, y: y0 * TILE, w: (x1 - x0 + 1) * TILE, h: (y1 - y0 + 1) * TILE, cx, cy });
+    return this;
+  }
+
+  /** Searchlight mounted at a tile centre sweeping between angles (deg, 0 = right, 90 = down). */
+  light(tx: number, ty: number, a0: number, a1: number, period = 4, range = 150, width = 26, phase = 0): this {
+    this.data.lights.push({ x: tx * TILE + 8, y: ty * TILE + 8, a0, a1, period, range, width, phase });
+    return this;
+  }
+
+  shutter(x0: number, y0: number, x1: number, y1: number): this {
+    this.data.shutters.push({ x0, y0, x1, y1 });
+    return this;
+  }
+
+  /** Train running right, its wheels on the rail at the top of row `railRow` (roof 28px above). */
+  train(railRow: number, tx0: number, tx1: number, speed = 220, cars = 4, period = 9, phase = 0): this {
+    this.data.trains.push({ y: railRow * TILE - 28, x0: tx0 * TILE, x1: tx1 * TILE, speed, cars, carW: 96, period, phase });
+    return this;
+  }
+
+  gantry(tx: number, ty: number, tw = 1, th = 1): this {
+    this.data.gantries.push({ x: tx * TILE, y: ty * TILE, w: tw * TILE, h: th * TILE });
+    return this;
+  }
+
+  /** Signal box hanging at head height over a train roof (rail row as for train()): jump it. */
+  signal(tx: number, railRow: number): this {
+    this.data.gantries.push({ x: tx * TILE, y: railRow * TILE - 28 - 22, w: TILE, h: 14 });
+    return this;
+  }
+
+  portal(atx: number, aty: number, an: Facing, btx: number, bty: number, bn: Facing): this {
+    this.data.portals.push({ ax: atx * TILE + 8, ay: aty * TILE + 8, an, bx: btx * TILE + 8, by: bty * TILE + 8, bn });
+    return this;
+  }
+
+  /** Crate standing on top of row ty (centred on tile column tx). */
+  crate(tx: number, ty: number): this {
+    this.data.crates.push({ x: tx * TILE + 8, y: ty * TILE });
+    return this;
+  }
+
+  rotor(tx: number, ty: number, rTiles: number, n = 3, speed = 0.9, wTiles = 3): this {
+    this.data.rotors.push({ cx: tx * TILE + 8, cy: ty * TILE + 8, r: rTiles * TILE, n, speed, w: wTiles * TILE });
+    return this;
+  }
+
+  pendulum(tx: number, ty: number, lenTiles: number, ampDeg = 50, period = 3.2, phase = 0): this {
+    this.data.pendulums.push({ px: tx * TILE + 8, py: ty * TILE + 8, len: lenTiles * TILE, amp: (ampDeg * Math.PI) / 180, period, phase });
+    return this;
+  }
+
+  /** NPC standing on top of row ty+1 (like a ground enemy). */
+  npc(id: string, name: string, tx: number, ty: number, dialog: string, required = false, face = -1): this {
+    this.data.npcs.push({ id, name, x: tx * TILE + 8, y: (ty + 1) * TILE, dialog, required, face });
+    return this;
+  }
+
   phase(x0: number, y0: number, x1: number, y1: number, which: 'A' | 'B'): this {
     return this.fill(x0, y0, x1, y1, which === 'A' ? Mat.PhaseA : Mat.PhaseB);
   }
@@ -415,7 +617,7 @@ export class LevelBuilder {
   /** Enemy spawn. Drones float at the tile centre; ground units stand on row ty+1. */
   enemy(kind: EnemySpawn['kind'], tx: number, ty: number): this {
     const x = tx * TILE + 8;
-    const floating = kind === 'drone' || kind === 'mine' || kind === 'echo';
+    const floating = kind === 'drone' || kind === 'mine' || kind === 'echo' || kind === 'watcher';
     this.data.enemies.push({ kind, x, y: floating ? ty * TILE + 8 : (ty + 1) * TILE });
     return this;
   }

@@ -11,8 +11,8 @@ import { Menu } from '../ui/Menu.ts';
 import { ControlsPanel, OptionsPanel } from '../ui/Panels.ts';
 import { text } from '../ui/Ui.ts';
 import { UI_TEXT } from '../data/story.ts';
-import { loadProgress, saveProgress, settings, unlockedStage } from '../core/Settings.ts';
-import { STAGE_NAMES } from '../world/levels/index.ts';
+import { endingsSeen, loadProgress, saveProgress, settings, unlockedStage } from '../core/Settings.ts';
+import { CHAPTER_STARTS, STAGE_NAMES } from '../world/levels/index.ts';
 import { panel } from '../ui/Ui.ts';
 import type { NeonPostFX } from '../fx/NeonPostFX.ts';
 import type { PlayerSheet } from '../entities/Player.ts';
@@ -145,32 +145,74 @@ export class TitleScene extends Phaser.Scene {
   private openStageSelect(): void {
     if (!this.menu) return;
     this.menu.setVisible(false);
-    const root = this.add.container(0, 0).setDepth(200);
-    const w = 200;
-    const h = 34 + STAGE_NAMES.length * 14;
-    const x = Math.round((GAME_W - w) / 2);
-    const y = Math.max(8, Math.round((GAME_H - h) / 2) + 6);
-    root.add(panel(this, x, y, w, h));
-    root.add(text(this, x + 12, y + 7, UI_TEXT.stageSelect, 'galmuri11b', COLORS.cyan));
     const max = unlockedStage();
+    // start on the chapter of the furthest unlocked stage
+    let ch = 0;
+    for (let i = 0; i < CHAPTER_STARTS.length; i++) if (max >= CHAPTER_STARTS[i]) ch = i;
+    const kb = this.input.keyboard!;
+    let root: Phaser.GameObjects.Container | null = null;
     let sub: Menu | null = null;
+    const build = () => {
+      sub?.destroy();
+      root?.destroy();
+      const from = CHAPTER_STARTS[ch];
+      const to = ch + 1 < CHAPTER_STARTS.length ? CHAPTER_STARTS[ch + 1] : STAGE_NAMES.length;
+      const n = to - from;
+      const w = 220;
+      const h = 48 + n * 14;
+      const x = Math.round((GAME_W - w) / 2);
+      const y = Math.max(6, Math.round((GAME_H - h) / 2) + 6);
+      root = this.add.container(0, 0).setDepth(200);
+      root.add(panel(this, x, y, w, h));
+      root.add(text(this, x + 12, y + 7, UI_TEXT.stageSelect, 'galmuri11b', COLORS.cyan));
+      const tab = text(this, 0, y + 24, `◀  CHAPTER ${ch + 1}  ▶`, 'galmuri9', COLORS.amberHot);
+      tab.x = Math.round(x + w - 14 - tab.width);
+      tab.y = y + 8;
+      root.add(tab);
+      if (ch === 2) {
+        const e = endingsSeen();
+        const marks = text(this, x + 12, y + 24, `${e.good ? '★' : '☆'} 열쇠의 아침   ${e.bad ? '★' : '☆'} 고정된 도시`, 'galmuri7', COLORS.uiDim);
+        root.add(marks);
+      }
+      sub = new Menu(
+        this,
+        x + 20,
+        y + (ch === 2 ? 38 : 30),
+        STAGE_NAMES.slice(from, to).map((nm, k) => {
+          const i = from + k;
+          return { label: `${i + 1}. ${i <= max ? nm : '???'}`, disabled: i > max, action: () => this.go(false, i) };
+        }),
+        { width: w - 44, spacing: 14 },
+      );
+      sub.onBack = close;
+      root.add(sub.container);
+      this.cameras.main.ignore(root);
+    };
+    const flip = (d: number) => {
+      const next = Math.max(0, Math.min(CHAPTER_STARTS.length - 1, ch + d));
+      if (next === ch || CHAPTER_STARTS[next] > max) return;
+      ch = next;
+      audio.play('ui_move');
+      build();
+    };
+    const left = () => flip(-1);
+    const right = () => flip(1);
+    const keys: [string, () => void][] = [
+      ['keydown-LEFT', left],
+      ['keydown-A', left],
+      ['keydown-RIGHT', right],
+      ['keydown-D', right],
+    ];
+    for (const [k, fn] of keys) kb.on(k, fn);
     const close = () => {
+      for (const [k, fn] of keys) kb.off(k, fn);
       this.events.once('postupdate', () => {
         sub?.destroy();
-        root.destroy();
+        root?.destroy();
         this.menu?.setVisible(true);
       });
     };
-    sub = new Menu(
-      this,
-      x + 20,
-      y + 28,
-      STAGE_NAMES.map((n, i) => ({ label: `${i + 1}. ${i <= max ? n : '???'}`, disabled: i > max, action: () => this.go(false, i) })),
-      { width: w - 44, spacing: 14 },
-    );
-    sub.onBack = close;
-    root.add(sub.container);
-    this.cameras.main.ignore(root);
+    build();
   }
 
   private go(cont: boolean, stage?: number): void {

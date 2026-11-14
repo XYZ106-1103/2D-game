@@ -84,3 +84,25 @@ export function saveProgress(p: Progress | null): void {
     /* ignore */
   }
 }
+
+const ENDINGS = 'tetherfall.endings.v1';
+
+/** Chapter 3 endings the player has seen. */
+export function endingsSeen(): { good: boolean; bad: boolean } {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ENDINGS) ?? '{}');
+    return { good: !!raw.good, bad: !!raw.bad };
+  } catch {
+    return { good: false, bad: false };
+  }
+}
+
+export function markEnding(kind: 'good' | 'bad'): void {
+  try {
+    const cur = endingsSeen();
+    cur[kind] = true;
+    localStorage.setItem(ENDINGS, JSON.stringify(cur));
+  } catch {
+    /* storage unavailable */
+  }
+}

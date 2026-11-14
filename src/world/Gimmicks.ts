@@ -9,6 +9,7 @@ import type { Juice } from '../fx/Juice.ts';
 import { CRUMBLE_TILE, type Level } from './Level.ts';
 import { Mat, type MoverDef, type VentDef } from './LevelData.ts';
 import { Devices } from './Devices.ts';
+import { Devices3 } from './Devices3.ts';
 
 /** Tether drone that shuttles along a path; the rope's root follows it. */
 export class MovingAnchor implements AnchorPoint {
@@ -169,6 +170,7 @@ interface VentObj {
 export class Gimmicks {
   readonly movers: MovingAnchor[] = [];
   readonly devices: Devices;
+  readonly devices3: Devices3;
   private crumbles: Crumbles;
   private vents: VentObj[] = [];
   private particles: Particles;
@@ -181,6 +183,7 @@ export class Gimmicks {
     for (const m of level.data.movers) this.movers.push(new MovingAnchor(scene, m));
     this.crumbles = new Crumbles(scene, level);
     this.devices = new Devices(scene, level, particles, juice);
+    this.devices3 = new Devices3(scene, level, particles, juice);
     // crumble sprite textures cut from the tileset
     const ts = scene.textures.get(level.tileKey);
     for (const [base, idx] of [
@@ -207,11 +210,12 @@ export class Gimmicks {
     for (const m of this.movers) m.fixedUpdate(dt);
     this.crumbles.update(dt, player, this.particles, this.juice);
     this.devices.fixedUpdate(dt, player);
+    this.devices3.fixedUpdate(dt, player);
     const b = player.body;
     for (const v of this.vents) {
       v.t += dt;
       const cycle = v.def.on + v.def.off;
-      const on = v.t % cycle < v.def.on;
+      const on = v.t % cycle < v.def.on && !this.devices3.blocksVent(v.def.x, v.def.y);
       if (on && !v.on) this.juice.sfx('steam', { vol: 0.45 });
       v.on = on;
       if (!on || player.dead) continue;
@@ -229,6 +233,7 @@ export class Gimmicks {
 
   render(dt: number): void {
     this.devices.render(dt);
+    this.devices3.render(dt);
     for (const m of this.movers) m.render(this.time);
     for (const v of this.vents) {
       v.glow.setAlpha(v.on ? 0.22 + Math.sin(this.time * 20) * 0.04 : Math.max(0, v.glow.alpha - dt * 2));
@@ -250,15 +255,17 @@ export class Gimmicks {
   reset(): void {
     this.crumbles.reset();
     this.devices.reset();
+    this.devices3.reset();
   }
 
   /** Hook targets besides static anchors: movers, gravity cores, switches. */
   anchors(): AnchorPoint[] {
-    return (this.movers as AnchorPoint[]).concat(this.devices.anchors());
+    return (this.movers as AnchorPoint[]).concat(this.devices.anchors(), this.devices3.anchors());
   }
 
   destroy(): void {
     for (const m of this.movers) m.destroy();
     this.devices.destroy();
+    this.devices3.destroy();
   }
 }

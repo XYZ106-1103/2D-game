@@ -18,10 +18,41 @@ export interface PlayerSheet {
   meta: { hand: [number, number]; neck: [number, number]; blade?: [number, number, number, number] }[];
 }
 
+/** External controller that drives the body (e.g. riding a zip line). Return false to let go. */
+export interface Carrier {
+  step(dt: number, p: Player, jump: boolean, grappleHeld: boolean): boolean;
+}
+
+/** Moving platform / dynamic box provided by stage devices each step. */
+export interface Plat {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Displacement during this step (already applied to x/y). */
+  dx: number;
+  dy: number;
+  vx: number;
+  vy: number;
+  /** Solid sides & bottom (crates); otherwise a one-way top. */
+  solid: boolean;
+}
+
+export interface WaterState {
+  /** Fraction of the body below the surface (0..1). */
+  depth: number;
+  cx: number;
+  cy: number;
+}
+
 const SWING_ANGLES = [-135, -112.5, -90, -67.5, -45, -22.5, 0, 22.5, 45, 67.5, 90, 112.5, 135];
 const SHOOT_ANGLES = [-90, -67.5, -45, -22.5, 0, 22.5, 45, 67.5, 90];
 
 type AttackKind = 'attack1' | 'attack2' | 'airattack';
+
+function grappleHeldNow(locked: boolean, input: Input): boolean {
+  return !locked && input.grappleHeld;
+}
 
 export class Player {
   readonly body: Body;
@@ -41,6 +72,14 @@ export class Player {
   controlLocked = false;
   /** Set each step by stage devices (zero-g pockets). */
   gravityScale = 1;
+  /** Zip line ride etc. */
+  carrier: Carrier | null = null;
+  /** Moving platforms and crates near the player (set by devices every step). */
+  platforms: Plat[] = [];
+  /** Water the player is in (set by devices every step). */
+  water: WaterState | null = null;
+  private ridePlat: Plat | null = null;
+  private swimCd = 0;
 
   // timers & state
   private coyote = 0;
@@ -96,6 +135,10 @@ export class Player {
   private pumpLock = 0;
   private pumpLockT = 0;
   private lastMx = 0;
+  /** Horizontal input of the last step (-1, 0, 1). */
+  get lastInput(): number {
+    return this.lastMx;
+  }
 
   constructor(scene: Phaser.Scene, world: TileWorld, x: number, y: number, fx: Particles, juice: Juice) {
     this.world = world;
@@ -204,6 +247,9 @@ export class Player {
     this.dashT = 0;
     this.attackT = 0;
     this.grapple.reset();
+    this.carrier = null;
+    this.ridePlat = null;
+    this.water = null;
     this.sprite.setVisible(true);
     this.scarf.reset(x, y - 20);
     this.setAnim('land', true);
@@ -263,6 +309,24 @@ export class Player {
     const mx = locked ? 0 : input.moveX;
     this.lastMx = mx;
 
+    // --- external carrier (zip line) ----------------------------------------------
+    if (this.carrier) {
+      const jump = this.jumpBuf > 0;
+      if (jump) this.jumpBuf = 0;
+      this.grappleBuf = 0;
+      if (!this.carrier.step(dt, this, jump, grappleHeldNow(locked, input))) {
+        this.carrier = null;
+        this.releaseT = 0.25;
+        this.airDashes = 1;
+      }
+      const [hx0, hy0] = this.simHand();
+      this.grapple.fixedUpdate(dt, hx0, hy0, anchors, b.x, b.y);
+      if (this.world.hazardAt(b.x, b.y, b.w - 2, b.h)) this.hurt(1, b.x, true);
+      if (b.y > this.world.pixelHeight + 60) this.die(true);
+      return;
+    }
+    this.carryPlatform();
+
     // --- grapple fire / release -------------------------------------------------
     if (wantGrapple && this.grapple.canFire && this.dashT <= 0) {
       this.grappleBuf = 0;
@@ -319,6 +383,10 @@ export class Player {
   private normalStep(dt: number, input: Input, mx: number): void {
     const b = this.body;
     const P = PLAYER;
+    if (this.water && this.water.depth > 0.2) {
+      this.waterStep(dt, input, mx);
+      return;
+    }
     if (b.onGround) {
       this.coyote = P.coyote;
       this.airDashes = 1;
@@ -387,12 +455,102 @@ export class Player {
   private integrate(dt: number): void {
     const b = this.body;
     const vyBefore = b.vy;
+    const prevX = b.x;
+    const prevBottom = b.y + b.h / 2;
+    const prevTop = b.y - b.h / 2;
     this.world.moveX(b, b.vx * dt);
     const wasGround = b.onGround;
     b.onGround = false;
     this.world.moveY(b, b.vy * dt);
     if (!b.onGround && b.vy >= 0) b.onGround = this.world.groundProbe(b);
+    if (this.platforms.length) this.collidePlatforms(prevX, prevBottom, prevTop);
     if (b.onGround && !wasGround) this.onLand(vyBefore);
+  }
+
+  /** Ride the platform stood on last step (it has already moved). */
+  private carryPlatform(): void {
+    const b = this.body;
+    const p = this.ridePlat;
+    if (!p) return;
+    const feet = b.y + b.h / 2;
+    const ox = p.x - p.dx;
+    const oy = p.y - p.dy;
+    const onIt = this.platforms.includes(p) && Math.abs(feet - oy) < 3 && b.x + b.w / 2 > ox && b.x - b.w / 2 < ox + p.w && b.vy >= -1;
+    if (!onIt) {
+      // stepping or jumping off keeps the platform's momentum
+      b.vx += p.vx;
+      if (p.vy < 0) b.vy += p.vy;
+      this.ridePlat = null;
+      return;
+    }
+    this.world.moveX(b, p.dx);
+    this.world.moveY(b, p.dy);
+    b.y = Math.min(b.y, p.y - b.h / 2);
+    b.onGround = true;
+  }
+
+  private collidePlatforms(prevX: number, prevBottom: number, prevTop: number): void {
+    const b = this.body;
+    let landed: Plat | null = null;
+    for (const p of this.platforms) {
+      if (b.x + b.w / 2 <= p.x || b.x - b.w / 2 >= p.x + p.w) continue;
+      const bottom = b.y + b.h / 2;
+      const top = b.y - b.h / 2;
+      if (b.vy >= 0 && b.dropThrough <= 0 && prevBottom <= p.y + 2 + Math.max(0, p.dy) && bottom >= p.y) {
+        b.y = p.y - b.h / 2;
+        b.vy = 0;
+        b.onGround = true;
+        landed = p;
+        continue;
+      }
+      if (!p.solid || bottom <= p.y + 1 || top >= p.y + p.h) continue;
+      if (prevTop >= p.y + p.h - 2) {
+        // bonk the underside
+        b.y = p.y + p.h + b.h / 2;
+        b.vy = Math.max(0, b.vy);
+        b.hitCeil = true;
+      } else {
+        const fromLeft = prevX < p.x + p.w / 2;
+        b.x = fromLeft ? p.x - b.w / 2 - 0.01 : p.x + p.w + b.w / 2 + 0.01;
+        b.vx = fromLeft ? Math.min(0, b.vx - p.vx) + p.vx : Math.max(0, b.vx - p.vx) + p.vx;
+        b.hitWallX = fromLeft ? 1 : -1;
+      }
+    }
+    if (landed) this.ridePlat = landed;
+  }
+
+  /** Swimming: buoyancy, drag, currents, strokes and jumping out at the surface. */
+  private waterStep(dt: number, input: Input, mx: number): void {
+    const b = this.body;
+    const w = this.water!;
+    this.airDashes = 1;
+    this.coyote = 0;
+    this.jumping = false;
+    b.vx = approach(b.vx, mx * 100, 520 * dt);
+    if (mx !== 0 && this.attackT <= 0) this.facing = mx;
+    const dive = input.downHeld ? 950 : 0;
+    b.vy += (PLAYER.gravity * (1 - 1.5 * w.depth) + dive) * dt;
+    b.vx *= Math.exp(-1.2 * dt);
+    b.vy *= Math.exp(-2.6 * dt);
+    b.vx += w.cx * dt;
+    b.vy += w.cy * dt;
+    b.vy = clamp(b.vy, -320, 240);
+    this.swimCd -= dt;
+    if (this.jumpBuf > 0) {
+      if (w.depth < 0.9) {
+        b.vy = -PLAYER.jumpVel * 0.95;
+        this.jumping = true;
+        this.jumpT = 0;
+        this.juice.sfx('splash', { vol: 0.7 });
+        this.jumpBuf = 0;
+      } else if (this.swimCd <= 0) {
+        b.vy = Math.min(b.vy, 0) - 200;
+        this.swimCd = 0.28;
+        this.jumpBuf = 0;
+        this.juice.sfx('swim', { vol: 0.5 });
+      }
+    }
+    this.integrate(dt);
   }
 
   private onOneWay(): boolean {
@@ -486,6 +644,11 @@ export class Player {
     }
 
     b.vy += PLAYER.gravity * this.gravityScale * dt;
+    if (this.water && this.water.depth > 0) {
+      b.vy -= PLAYER.gravity * 1.5 * this.water.depth * dt;
+      b.vx *= Math.exp(-1.5 * dt);
+      b.vy *= Math.exp(-1.5 * dt);
+    }
     // light air drag keeps swings from building forever
     const drag = Math.exp(-0.08 * dt);
     b.vx *= drag;
@@ -557,6 +720,8 @@ export class Player {
     b.vy = (dy / d) * sp;
     this.facing = dx >= 0 ? 1 : -1;
     this.dashIdx = nearestIndex([-90, -45, 0, 45, 90], Math.atan2(dy, Math.abs(dx)) * DEG);
+    // a zip aimed downward cuts through one-way platforms instead of stalling on them
+    if (dy > 0) b.dropThrough = Math.max(b.dropThrough, 0.06);
     this.integrate(dt);
     if (b.hitWallX !== 0 || b.hitCeil) this.zipBlocked += dt;
     if (this.zipBlocked > 0.08 || this.zipT > 0.7) cancel();
@@ -744,6 +909,7 @@ export class Player {
     if (this.hurtT > 0) return this.setAnim('hit');
     if (this.dashT > 0 || this.grapple.state === 'zip') return this.setAnim(`dash_${this.dashIdx}`);
     if (this.attackT > 0 && this.attackKind) return this.setAnim(this.attackKind);
+    if (this.carrier) return this.setAnim('swingB_6');
     if (this.grapple.attached && !b.onGround) {
       const piv = this.grapple.rope.active;
       let ang = Math.atan2(piv.x - b.x, -(piv.y - b.y)) * DEG; // clockwise from up

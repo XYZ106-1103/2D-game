@@ -41,6 +41,7 @@ export class Input {
       grapple2: K.Z,
       pause: K.ESC,
       pause2: K.P,
+      talk: K.E,
     }) as Record<string, Phaser.Input.Keyboard.Key>;
 
     const map: Record<string, string> = {
@@ -56,6 +57,7 @@ export class Input {
       pause2: 'pause',
       up: 'up',
       up2: 'up',
+      talk: 'up',
       down: 'down',
       down2: 'down',
     };

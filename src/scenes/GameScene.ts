@@ -4,7 +4,7 @@ import { COLORS } from '../art/palette.ts';
 import { audio } from '../audio/AudioEngine.ts';
 import { Input } from '../core/Input.ts';
 import { clamp } from '../core/math.ts';
-import { loadProgress, saveProgress, settings, unlockStage } from '../core/Settings.ts';
+import { loadProgress, markEnding, saveProgress, settings, unlockStage } from '../core/Settings.ts';
 import { Player } from '../entities/Player.ts';
 import { Grapple, type AnchorPoint } from '../entities/Grapple.ts';
 import { CameraDirector } from '../fx/CameraDirector.ts';
@@ -14,10 +14,12 @@ import type { NeonPostFX } from '../fx/NeonPostFX.ts';
 import { Level } from '../world/Level.ts';
 import { Parallax } from '../world/Parallax.ts';
 import { Weather } from '../world/Weather.ts';
-import { CHAPTER1_END, STAGES } from '../world/levels/index.ts';
+import { CHAPTER1_END, CHAPTER2_END, STAGES } from '../world/levels/index.ts';
 import { Gimmicks } from '../world/Gimmicks.ts';
+import { Npcs } from '../world/Npcs.ts';
 import { Archivist } from '../entities/boss/Archivist.ts';
 import { Nocturne } from '../entities/boss/Nocturne.ts';
+import { Vesper } from '../entities/boss/Vesper.ts';
 import type { HudScene } from './HudScene.ts';
 import { Combat } from '../combat/Combat.ts';
 
@@ -104,9 +106,13 @@ export class GameScene extends Phaser.Scene implements Juice {
   private exitT = 0;
   stageIndex = 0;
   gimmicks!: Gimmicks;
+  npcs!: Npcs;
+  private talkLock = false;
   /** Set by the boss controller: blocks the exit until the fight is won. */
   exitLocked = false;
-  boss: Archivist | Nocturne | null = null;
+  boss: Archivist | Nocturne | Vesper | null = null;
+  /** Continue straight into the final decision (chapter 3). */
+  private choiceOnly = false;
 
   get postFx(): NeonPostFX | null {
     return this.post;
@@ -118,6 +124,7 @@ export class GameScene extends Phaser.Scene implements Juice {
 
   init(data: { continue?: boolean; stage?: number; carry?: string[] }): void {
     const progress = data.continue ? loadProgress() : null;
+    this.choiceOnly = !!progress && progress.checkpoint === -2;
     const urlStage = new URLSearchParams(location.search).get('stage');
     this.stageIndex = Math.max(0, Math.min(STAGES.length - 1, data.stage ?? progress?.stage ?? (urlStage ? Number(urlStage) : 0)));
     this.boss = null;
@@ -178,11 +185,40 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.combat = new Combat(this, world, this.player, this.particles, this, data.enemies);
     this.combat.onCombo = (n) => this.hud?.combo(n);
     this.gimmicks = new Gimmicks(this, this.level, this.particles, this);
-    if (data.boss) this.setupBoss(data.boss);
+    // chapter 3 hubs: talk to people; required talks open the way on
+    this.npcs = new Npcs(this, data.npcs);
+    this.talkLock = false;
+    if (data.hub) {
+      this.exitLocked = data.npcs.some((n) => n.required);
+      this.npcs.onTalk = (key) => {
+        this.talkLock = true;
+        this.player.controlLocked = true;
+        this.hud?.dialog(key);
+      };
+      this.npcs.onAllRequired = () => {
+        this.exitLocked = false;
+        this.particles.ring(this.level.data.exit.x, this.level.data.exit.y - 20, COLORS.acid);
+      };
+    }
+    // chapter 3: searchlights / watcher drones raise the district alarm
+    if (data.lights.length || data.enemies.some((e) => e.kind === 'watcher')) {
+      const dev = this.gimmicks.devices3;
+      this.combat.ctx.alarm = (x, y) => dev.alarm(x, y);
+      dev.onAlarm = (x, y) => {
+        this.hud?.toast('ALERT', '경보 — 셔터 폐쇄');
+        const alive = this.combat.enemies.filter((e) => e.alive && e.kind === 'drone' && Math.abs(e.x - x) < 300).length;
+        for (let i = alive; i < 2; i++) {
+          const e = this.combat.spawn({ kind: 'drone', x: x + (i ? 50 : -50), y: y + 20 });
+          this.particles.ring(e.x, e.y, COLORS.crimsonHot);
+        }
+      };
+    }
+    if (data.boss && this.choiceOnly) this.time.delayedCall(1200, () => this.finalChoice());
+    else if (data.boss) this.setupBoss(data.boss);
 
     this.cam = new CameraDirector(cam, world.pixelWidth, world.pixelHeight);
     // boss arena: hold a fixed height so the boss and the floor stay framed
-    if (data.boss) this.cam.lockY = 60;
+    if (data.boss) this.cam.lockY = data.boss === 'vesper' ? 96 : 60;
     this.cam.snap(this.player.x, this.player.feetY, this.player.facing);
     this.weather = new Weather(
       this,
@@ -205,6 +241,9 @@ export class GameScene extends Phaser.Scene implements Juice {
 
     this.scene.launch('Hud');
     this.hud = this.scene.get('Hud') as HudScene;
+    this.time.delayedCall(0, () => {
+      if (this.hud) this.hud.manualDialog = data.hub;
+    });
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
 
     audio.unlock();
@@ -214,20 +253,29 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.game.events.on(Phaser.Core.Events.BLUR, this.autoPause, this);
   }
 
-  private setupBoss(kind: 'archivist' | 'nocturne'): void {
-    const noc = kind === 'nocturne';
-    const boss = noc ? new Nocturne(this) : new Archivist(this);
-    const key = noc ? 'n' : 'b';
-    const name = noc ? '녹턴' : '기록관';
+  private setupBoss(kind: 'archivist' | 'nocturne' | 'vesper'): void {
+    const meta = {
+      archivist: { key: 'b', name: '기록관', sub: 'LETHE 집행 유닛 LT-0 · ARCHIVIST', sfx: 'roar', wait: 9800 },
+      nocturne: { key: 'n', name: '녹턴', sub: 'PROJECT NOCTURNE · 기억을 먹는 나방', sfx: 'screech', wait: 11800 },
+      vesper: { key: 'vs', name: '베스퍼', sub: '천백만의 합의 · THE CONSENSUS', sfx: 'roar', wait: 13800 },
+    }[kind];
+    const boss = kind === 'nocturne' ? new Nocturne(this) : kind === 'vesper' ? new Vesper(this) : new Archivist(this);
     this.boss = boss;
     this.exitLocked = true;
     this.combat.extraTargets = () => boss.hookTargets();
     this.combat.extraHit = (x, y, w, h, id, dmg, kind2, dir) => boss.hit(x, y, w, h, id, dmg, kind2, dir);
-    boss.onPhase = (ph) => this.hud?.dialog(ph === 2 ? `${key}_phase2` : `${key}_phase3`);
+    boss.onPhase = (ph) => this.hud?.dialog(`${meta.key}_phase${ph}`);
     boss.onDefeated = () => {
+      if (kind === 'vesper') {
+        this.hud?.bossBar(false);
+        this.hud?.dialog('vs_end');
+        audio.stopMusic(3);
+        this.time.delayedCall(1500, () => this.finalChoice());
+        return;
+      }
       this.time.delayedCall(1600, () => {
         this.hud?.bossBar(false);
-        this.hud?.dialog(`${key}_end`);
+        this.hud?.dialog(`${meta.key}_end`);
         this.exitLocked = false;
         this.particles.ring(this.exit.x, this.exit.y - 20, COLORS.acid);
         audio.stopMusic(2);
@@ -237,16 +285,46 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.player.controlLocked = true;
     this.time.delayedCall(400, () => {
       this.hud?.letterbox(true);
-      audio.play(noc ? 'screech' : 'roar');
+      audio.play(meta.sfx);
       this.shake(4, 1.2);
     });
-    this.time.delayedCall(1700, () => this.hud?.nameCard(name, noc ? 'PROJECT NOCTURNE · 기억을 먹는 나방' : 'LETHE 집행 유닛 LT-0 · ARCHIVIST'));
-    this.time.delayedCall(2600, () => this.hud?.dialog(`${key}_intro`));
-    this.time.delayedCall(noc ? 11800 : 9800, () => {
+    this.time.delayedCall(1700, () => this.hud?.nameCard(meta.name, meta.sub));
+    this.time.delayedCall(2600, () => this.hud?.dialog(`${meta.key}_intro`));
+    this.time.delayedCall(meta.wait, () => {
       this.hud?.letterbox(false);
-      this.hud?.bossBar(true, name, () => boss.totalHp / boss.maxHp);
+      this.hud?.bossBar(true, meta.name, () => boss.totalHp / boss.maxHp);
       this.player.controlLocked = false;
       boss.begin();
+    });
+  }
+
+  /** Chapter 3: the decision at the Consensus core (after VESPER, or on continue). */
+  private finalChoice(): void {
+    this.player.controlLocked = true;
+    this.player.grapple.release();
+    saveProgress({ level: this.level.data.id, stage: this.stageIndex, checkpoint: -2, logs: [...this.stats.logs] });
+    const open = () => {
+      if (this.hud?.talking) {
+        this.time.delayedCall(300, open);
+        return;
+      }
+      this.hud?.letterbox(true);
+      this.hud?.showChoice('합의 코어', ['열쇠로 돌려준다 — 각자 선택하게', '합의를 멈추고, 모든 기억을 영원히 고정한다'], (i) => this.endChapter3(i === 0 ? 'good' : 'bad'));
+    };
+    open();
+  }
+
+  private endChapter3(kind: 'good' | 'bad'): void {
+    markEnding(kind);
+    const run = (this.registry.get('run') as { time: number; deaths: number; kills: number; bestCombo: number } | undefined) ?? { time: 0, deaths: 0, kills: 0, bestCombo: 0 };
+    this.registry.set('run', { time: run.time + this.stats.time, deaths: run.deaths + this.stats.deaths, kills: run.kills + this.stats.kills, bestCombo: Math.max(run.bestCombo, this.stats.bestCombo), logs: [...this.stats.logs] });
+    this.state = 'clear';
+    this.flash(0.6);
+    audio.play(kind === 'good' ? 'clear' : 'thunder', { vol: 0.8 });
+    this.cameras.main.fadeOut(1400, kind === 'good' ? 255 : 5, kind === 'good' ? 240 : 3, kind === 'good' ? 210 : 10);
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      this.scene.stop('Hud');
+      this.scene.start('Ending', { chapter: 3, ending: kind });
     });
   }
 
@@ -256,6 +334,7 @@ export class GameScene extends Phaser.Scene implements Juice {
     audio.intensity = 0;
     this.combat?.destroy();
     this.gimmicks?.destroy();
+    this.npcs?.destroy();
     this.boss?.destroy();
     this.player?.destroy();
     this.level.destroy();
@@ -459,6 +538,15 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.weather.update(real, cam.scrollX, cam.scrollY);
     this.particles.update(real * this.timeScale);
     this.updateObjects(real);
+    if (this.npcs.any) {
+      const talking = !!this.hud?.talking;
+      this.npcs.update(real, this.player, this.controls, talking || this.state !== 'play');
+      if (this.talkLock && !talking) {
+        this.talkLock = false;
+        this.player.controlLocked = false;
+        this.controls.reset();
+      }
+    }
     this.updateCrosshair(aim);
     this.checkTriggers();
     this.updateDeath(real);
@@ -692,6 +780,7 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       this.scene.stop('Hud');
       if (this.stageIndex === CHAPTER1_END) this.scene.start('Ending', { chapter: 1, next, carry: this.stats.logs });
+      else if (this.stageIndex === CHAPTER2_END) this.scene.start('Ending', { chapter: 2, next, carry: this.stats.logs });
       else if (next < STAGES.length) this.scene.restart({ stage: next, carry: this.stats.logs });
       else this.scene.start('Ending', { chapter: 2 });
     });

@@ -14,9 +14,10 @@ import { Sentry } from '../entities/enemies/Sentry.ts';
 import { Trooper } from '../entities/enemies/Trooper.ts';
 import { Mine } from '../entities/enemies/Mine.ts';
 import { Echo } from '../entities/enemies/Echo.ts';
+import { Watcher } from '../entities/enemies/Watcher.ts';
 
 export interface EnemyDef {
-  kind: 'drone' | 'sentry' | 'trooper' | 'mine' | 'echo';
+  kind: 'drone' | 'sentry' | 'trooper' | 'mine' | 'echo' | 'watcher';
   x: number;
   y: number;
 }
@@ -33,7 +34,7 @@ export class Combat {
   private particles: Particles;
   private juice: Juice;
   private laser: Phaser.GameObjects.Graphics;
-  private ctx: EnemyCtx;
+  readonly ctx: EnemyCtx;
   combo = 0;
   comboT = 0;
   bestCombo = 0;
@@ -71,6 +72,7 @@ export class Combat {
     else if (d.kind === 'sentry') e = new Sentry(this.ctx, d.x, d.y);
     else if (d.kind === 'mine') e = new Mine(this.ctx, d.x, d.y);
     else if (d.kind === 'echo') e = new Echo(this.ctx, d.x, d.y);
+    else if (d.kind === 'watcher') e = new Watcher(this.ctx, d.x, d.y);
     else e = new Trooper(this.ctx, d.x, d.y);
     this.enemies.push(e);
     return e;

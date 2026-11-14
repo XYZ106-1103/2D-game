@@ -1,7 +1,7 @@
 {
   "name": "tetherfall",
   "private": true,
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "TETHERFALL — a cyberpunk pixel-art grappling action platformer (Phaser 3 + TypeScript + Vite)",
   "type": "module",
   "scripts": {

@@ -21,6 +21,9 @@ const MOTES: Record<Exclude<WeatherKind, 'rain' | 'none'>, { n: number; frames: 
   motes: { n: 60, frames: [['fx', 'px1'], ['ch2', 'spark_star']], tints: [0xc0a0ff, 0xd8b048, 0x8c58e8, 0xf4dc8a], vx: [-6, 6], vy: [-14, -3], sway: 8, alpha: [0.3, 0.9], add: true, spin: 0 },
   frozen: { n: 150, frames: [['fx', 'streak6'], ['fx', 'streak9'], ['fx', 'streak12']], tints: [0xa4a4ac, 0xc8c8ce, 0x82828c], vx: [0, 0], vy: [0, 0], sway: 0, alpha: [0.3, 0.6], add: false, spin: 0 },
   petals: { n: 46, frames: [['ch2', 'petal_0'], ['ch2', 'petal_1'], ['ch2', 'spark_star']], tints: [0xffffff], vx: [14, 34], vy: [12, 28], sway: 14, alpha: [0.6, 1], add: false, spin: 2.5 },
+  dust: { n: 50, frames: [['fx', 'px1']], tints: [0xfff6d0, 0xf4dc8a, 0xffffff], vx: [-4, 6], vy: [-6, 6], sway: 6, alpha: [0.25, 0.65], add: true, spin: 0 },
+  gulls: { n: 7, frames: [['ch3', 'gull_0'], ['ch3', 'gull_1']], tints: [0x2a1a2a], vx: [26, 46], vy: [-3, 3], sway: 4, alpha: [0.75, 0.95], add: false, spin: 0 },
+  leaves: { n: 34, frames: [['ch3', 'leaf_0'], ['ch3', 'leaf_1']], tints: [0xffffff], vx: [10, 30], vy: [14, 30], sway: 18, alpha: [0.7, 1], add: false, spin: 3 },
 };
 
 interface Drop {
@@ -179,6 +182,7 @@ export class Weather {
       if (m.spin) m.img.rotation += m.spin * dt;
       if (this.kind === 'frozen') m.img.setVisible(Math.sin(this.time * 0.7 + m.ph * 3) > -0.92);
       if (this.kind === 'embers') m.img.setAlpha(0.5 + 0.5 * Math.abs(Math.sin(this.time * 6 + m.ph)));
+      if (this.kind === 'gulls') m.img.setFrame(`gull_${Math.floor(this.time * 5 + m.ph) % 2}`);
     }
   }
 }

@@ -8,7 +8,7 @@ import type { Player } from '../Player.ts';
 import type { AnchorPoint } from '../Grapple.ts';
 import type { Projectiles } from '../../combat/Projectiles.ts';
 
-export type EnemyKind = 'drone' | 'sentry' | 'trooper' | 'mine' | 'echo';
+export type EnemyKind = 'drone' | 'sentry' | 'trooper' | 'mine' | 'echo' | 'watcher';
 export type HitKind = 'slash' | 'air' | 'zip' | 'bolt' | 'boss';
 export type HitResult = 'none' | 'hit' | 'block' | 'kill';
 
@@ -21,6 +21,8 @@ export interface EnemyCtx {
   projectiles: Projectiles;
   laser: Phaser.GameObjects.Graphics;
   boom(x: number, y: number, big?: boolean): void;
+  /** District alarm (chapter 3 searchlight stages), if the stage has one. */
+  alarm?: (x: number, y: number) => void;
 }
 
 /** Shared enemy behaviour: body, health, hit reactions, line of sight. */

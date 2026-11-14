@@ -124,7 +124,90 @@ export class HudScene extends Phaser.Scene {
     this.input.keyboard!.on('keydown-ENTER', () => this.onConfirm());
   }
 
+  /** True while a conversation is on screen. */
+  get talking(): boolean {
+    return this.dlgOpen;
+  }
+
+  /** Hubs: Space / Enter advances the conversation. */
+  advanceDialog(): void {
+    if (!this.dlgOpen) return;
+    if (!this.dlgTw.done) this.dlgTw.finish();
+    else this.nextLine();
+  }
+
+  /** Make conversations wait for a key press instead of timing out. */
+  manualDialog = false;
+
+  private choice: { box: Phaser.GameObjects.Container; items: Phaser.GameObjects.BitmapText[]; idx: number; cb: (i: number) => void } | null = null;
+
+  /** Modal choice (the final decision). Up/Down to move, Space/Enter to pick. */
+  showChoice(title: string, options: string[], cb: (i: number) => void): void {
+    const w = 300;
+    const h = 40 + options.length * 22;
+    const x = Math.round((GAME_W - w) / 2);
+    const y = Math.round((GAME_H - h) / 2) - 10;
+    const box = this.add.container(0, 0).setDepth(50);
+    box.add(this.add.rectangle(0, 0, GAME_W, GAME_H, 0x05030a, 0.55).setOrigin(0, 0));
+    box.add(panel(this, x, y, w, h));
+    const t = text(this, 0, y + 9, title, 'galmuri11b', COLORS.cyan);
+    t.x = Math.round((GAME_W - t.width) / 2);
+    box.add(t);
+    const items = options.map((o, i) => {
+      const it = text(this, x + 26, y + 34 + i * 22, o, 'galmuri9', COLORS.uiText);
+      box.add(it);
+      return it;
+    });
+    this.choice = { box, items, idx: 0, cb };
+    this.paintChoice();
+    const kb = this.input.keyboard!;
+    const move = (d: number) => {
+      if (!this.choice) return;
+      this.choice.idx = (this.choice.idx + d + this.choice.items.length) % this.choice.items.length;
+      audio.play('ui_move');
+      this.paintChoice();
+    };
+    const keys: [string, () => void][] = [
+      ['keydown-UP', () => move(-1)],
+      ['keydown-W', () => move(-1)],
+      ['keydown-DOWN', () => move(1)],
+      ['keydown-S', () => move(1)],
+    ];
+    for (const [k, fn] of keys) kb.on(k, fn);
+    this.choiceKeys = keys;
+  }
+
+  private choiceKeys: [string, () => void][] = [];
+
+  private paintChoice(): void {
+    if (!this.choice) return;
+    this.choice.items.forEach((it, i) => {
+      const on = i === this.choice!.idx;
+      it.setTint(on ? COLORS.amberHot : COLORS.uiDim);
+      it.setText((on ? '▶ ' : '  ') + it.text.replace(/^(▶ | {2})/, ''));
+    });
+  }
+
+  private pickChoice(): void {
+    if (!this.choice) return;
+    const c = this.choice;
+    this.choice = null;
+    for (const [k, fn] of this.choiceKeys) this.input.keyboard!.off(k, fn);
+    this.choiceKeys = [];
+    audio.play('ui_select');
+    c.box.destroy();
+    c.cb(c.idx);
+  }
+
   private onConfirm(): void {
+    if (this.choice) {
+      this.pickChoice();
+      return;
+    }
+    if (this.manualDialog && this.dlgOpen && !this.clear) {
+      this.advanceDialog();
+      return;
+    }
     if (this.clear) {
       audio.play('ui_select');
       this.clear = null;
@@ -152,8 +235,17 @@ export class HudScene extends Phaser.Scene {
     }
     this.dlgOpen = true;
     this.dlgBox.setVisible(true);
-    this.dlgName.setText(line.who === 'ION' ? '이온' : line.who === 'NOCTURNE' ? '녹턴' : line.who);
-    this.dlgName.setTint(line.who === 'MOTH' ? COLORS.cyan : line.who === 'ION' ? COLORS.amberHot : line.who === 'NOCTURNE' ? COLORS.magenta : COLORS.acid);
+    const SPEAKER: Record<string, [string, number]> = {
+      MOTH: ['MOTH', COLORS.cyan],
+      ION: ['이온', COLORS.amberHot],
+      NOCTURNE: ['녹턴', COLORS.magenta],
+      SYSTEM: ['SYSTEM', COLORS.acid],
+      VESPER: ['합의', COLORS.crimsonHot],
+      SERIN: ['세린', 0xc0a0ff],
+    };
+    const [name, tint] = SPEAKER[line.who] ?? [line.who, COLORS.white];
+    this.dlgName.setText(name);
+    this.dlgName.setTint(tint);
     this.dlgTw.start(wrap(this, 'galmuri9', line.text, 272));
     this.dlgHold = 2.2 + line.text.length * 0.03;
   }
@@ -342,7 +434,7 @@ export class HudScene extends Phaser.Scene {
     // dialogue
     if (this.dlgOpen) {
       this.dlgTw.update(dt);
-      if (this.dlgTw.done) {
+      if (this.dlgTw.done && !this.manualDialog) {
         this.dlgHold -= dt;
         if (this.dlgHold <= 0) this.nextLine();
       }
