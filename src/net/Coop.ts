@@ -133,6 +133,13 @@ export class Coop {
   /** Host: votes on the final decision, by slot. */
   private votes = new Map<number, number>();
   private choosing = false;
+  /** Undo for everything this session patched on longer-lived objects. */
+  private restore: (() => void)[] = [];
+  /** Shows a dialogue line without sending it on (for lines that came from a partner). */
+  private showDialog: (k: string) => void = () => undefined;
+  private raiseAlarm: (x: number, y: number) => void = () => undefined;
+  /** Destroyed: a session from an earlier stage must never send anything. */
+  private dead = false;
 
   constructor(scene: GameScene, role: Role, mirror: MirrorHost | null) {
     this.scene = scene;
@@ -154,7 +161,15 @@ export class Coop {
     this.offs.push(
       net.on('ps', (m) => {
         const src = Number(m.src);
-        if (src !== net.slot && net.peers.has(src)) this.partnerFor(src).apply(m as unknown as PartnerState, performance.now());
+        if (src === net.slot || !net.peers.has(src)) return;
+        const pt = this.partnerFor(src);
+        if (m.st !== undefined && Number(m.st) !== this.g.stageIndex) {
+          // that player is in another stage: hide them, and the host calls them back
+          pt.clear();
+          if (this.role === 'host') this.readySlots.delete(src);
+          return;
+        }
+        pt.apply(m as unknown as PartnerState, performance.now());
       }),
     );
     this.offs.push(net.on('ws', (m) => this.onSnapshot(m)));
@@ -183,12 +198,31 @@ export class Coop {
    */
   event(ev: Record<string, unknown>): void {
     if (this.relaying) return;
-    net.send({ t: 'ev', ...ev });
+    this.reply(ev);
   }
 
   /** Protocol reply or a message for one player: always sent, even while relaying. */
   private reply(ev: Record<string, unknown>): void {
-    net.send({ t: 'ev', ...ev });
+    if (this.dead) return;
+    // tagged with our stage: a late event from another stage is ignored
+    net.send({ t: 'ev', s: this.g.stageIndex, ...ev });
+  }
+
+  /**
+   * Replace obj[key] for this session only. The scene and HUD objects outlive
+   * a stage, so every patch is undone in destroy() — otherwise each stage
+   * would stack another layer, and the old layers would keep relaying.
+   */
+  private patch<T extends object, K extends keyof T>(obj: T, key: K, make: (orig: T[K]) => T[K]): T[K] {
+    const own = Object.prototype.hasOwnProperty.call(obj, key);
+    const prev = obj[key];
+    const orig = (typeof prev === 'function' ? (prev as (...a: unknown[]) => unknown).bind(obj) : prev) as T[K];
+    obj[key] = make(orig);
+    this.restore.push(() => {
+      if (own) obj[key] = prev;
+      else delete (obj as Record<PropertyKey, unknown>)[key as PropertyKey];
+    });
+    return orig;
   }
 
   /** The puppet for a room slot (made on first sight). */
@@ -248,44 +282,36 @@ export class Coop {
   private wrapHost(): void {
     const g = this.g;
     // particle bursts made by world code are replayed on the guest
-    const parts = g.particles;
-    const emit = parts.emit.bind(parts);
-    parts.emit = (x, y, o) => {
+    this.patch(g.particles, 'emit', (emit) => (x, y, o) => {
       if (this.mirror && this.mirror.cap > 0) this.fxQ.push([r1(x), r1(y), o]);
       emit(x, y, o);
-    };
-    const sfx = g.sfx.bind(g);
-    g.sfx = (name, opts) => {
+    });
+    this.patch(g, 'sfx', (sfx) => (name, opts) => {
       if (this.mirror && this.mirror.cap > 0 && !this.hurting()) this.sfxQ.push([name, opts]);
       sfx(name, opts);
-    };
-    const shake = g.shake.bind(g);
-    g.shake = (a, d) => {
+    });
+    this.patch(g, 'shake', (shake) => (a, d) => {
       if (this.bossRun > 0 && !this.hurting()) this.shakeQ.push([a, d ?? 0.2]);
       shake(a, d);
-    };
-    const flash = g.flash.bind(g);
-    g.flash = (a) => {
+    });
+    this.patch(g, 'flash', (flash) => (a) => {
       if (this.bossRun > 0 && !this.hurting()) this.flashQ.push(a);
       flash(a);
-    };
-    // boss cinematics on the HUD play on both screens
+    });
+    // boss cinematics on the HUD play on every screen
     const hud = g.hud;
-    const letterbox = hud.letterbox.bind(hud);
-    hud.letterbox = (on: boolean) => {
+    this.patch(hud, 'letterbox', (letterbox) => (on: boolean) => {
       letterbox(on);
       this.event({ e: 'hud', fn: 'letterbox', on });
-    };
-    const nameCard = hud.nameCard.bind(hud);
-    hud.nameCard = (title: string, sub: string) => {
+    });
+    this.patch(hud, 'nameCard', (nameCard) => (title: string, sub: string) => {
       nameCard(title, sub);
       this.event({ e: 'hud', fn: 'nameCard', title, sub });
-    };
-    const bossBar = hud.bossBar.bind(hud);
-    hud.bossBar = (show: boolean, name = '', hp: () => number = () => 1) => {
+    });
+    this.patch(hud, 'bossBar', (bossBar) => (show: boolean, name = '', hp: () => number = () => 1) => {
       bossBar(show, name, hp);
       this.event({ e: 'bossBar', on: show, name });
-    };
+    });
   }
 
   private wrapGuest(): void {
@@ -301,13 +327,11 @@ export class Coop {
 
   private wrapShared(): void {
     const g = this.g;
-    const hud = g.hud;
-    const dialog = hud.dialog.bind(hud);
-    hud.dialog = (k: string) => {
+    this.showDialog = this.patch(g.hud, 'dialog', (dialog) => (k: string) => {
       dialog(k);
       g.firedTriggers.add(k);
       this.event({ e: 'dlg', k });
-    };
+    });
     g.gimmicks.crumbles.onTrigger = (tx, ty) => this.event({ e: 'crumble', tx, ty });
     const dev2 = g.gimmicks.devices;
     dev2.onSwitch = (i) => {
@@ -318,12 +342,11 @@ export class Coop {
     };
     dev2.onFlood = (i) => this.event({ e: 'flood', i });
     const dev3 = g.gimmicks.devices3;
-    const alarm = dev3.alarm.bind(dev3);
-    dev3.alarm = (x: number, y: number) => {
+    this.raiseAlarm = this.patch(dev3, 'alarm', (alarm) => (x: number, y: number) => {
       const was = dev3.alarmT <= 0;
       alarm(x, y);
       if (was) this.event({ e: 'alarm', x: r1(x), y: r1(y) });
-    };
+    });
   }
 
   private hurting(): boolean {
@@ -500,6 +523,7 @@ export class Coop {
       dn: !!pv.downed,
       dash: p.isDashing,
       tid: tied instanceof RemoteAnchor ? tied.id : -1,
+      st: this.g.stageIndex,
       ...(ci >= 0 ? { cr: [ci, r1(crates[ci].body.x), r1(crates[ci].body.y)] } : {}),
     };
   }
@@ -647,6 +671,9 @@ export class Coop {
   private onEvent(m: NetMsg): void {
     const g = this.g;
     const e = String(m.e);
+    // an event from another stage (sent late, or by someone who is elsewhere)
+    // is ignored; the stage handshake carries its own stage number
+    if (m.s !== undefined && Number(m.s) !== g.stageIndex && e !== 'stage' && e !== 'ready' && e !== 'go') return;
     this.relaying = true;
     try {
       switch (e) {
@@ -720,8 +747,9 @@ export class Coop {
           break;
         }
         case 'dlg':
+          // shown here only; never sent on again
           g.firedTriggers.add(String(m.k));
-          g.hud.dialog(String(m.k));
+          this.showDialog(String(m.k));
           break;
         case 'cp':
           g.activateCheckpoint(Number(m.i));
@@ -747,7 +775,7 @@ export class Coop {
           g.gimmicks.devices.startFlood(Number(m.i));
           break;
         case 'alarm':
-          g.gimmicks.devices3.alarm(Number(m.x), Number(m.y));
+          this.raiseAlarm(Number(m.x), Number(m.y));
           break;
         case 'clear':
           if (this.role === 'guest') g.coopClear();
@@ -895,8 +923,11 @@ export class Coop {
   }
 
   destroy(): void {
+    this.dead = true;
     for (const off of this.offs) off();
     this.offs = [];
+    for (const undo of this.restore.reverse()) undo();
+    this.restore = [];
     this.guest?.clear();
     for (const pt of this.partners.values()) pt.destroy();
     this.partners.clear();

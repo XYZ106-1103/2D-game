@@ -32,7 +32,12 @@ export interface PartnerState {
   dash: boolean;
   /** remote anchor id the rope is tied to (-1 = none) */
   tid: number;
+  /** the stage the sender is in */
+  st?: number;
 }
+
+/** No state for this long: the partner is treated as gone (and hidden). */
+const STALE_MS = 3000;
 
 /**
  * Puppet of the co-op partner. It renders their character from the network
@@ -52,6 +57,7 @@ export class Partner implements Actor, Attacker, AnchorPoint {
   private sheet: PlayerSheet;
   /** Latest state, and a short timeline of states for smooth playback. */
   private b: PartnerState | null = null;
+  private lastT = 0;
   private buf: { s: PartnerState; t: number }[] = [];
   private guardT = 0;
   /** Forwarders (set by the co-op session). */
@@ -83,7 +89,7 @@ export class Partner implements Actor, Attacker, AnchorPoint {
   }
 
   get present(): boolean {
-    return this.b !== null;
+    return this.b !== null && performance.now() - this.lastT < STALE_MS;
   }
   get x(): number {
     return this.body.x;
@@ -116,6 +122,7 @@ export class Partner implements Actor, Attacker, AnchorPoint {
   /** New network state. */
   apply(s: PartnerState, now: number): void {
     this.b = s;
+    this.lastT = now;
     this.buf.push({ s, t: now });
     while (this.buf.length > 2 && now - this.buf[0].t > 1000) this.buf.shift();
     // gameplay uses the freshest position (fairer to the remote player)
@@ -154,7 +161,7 @@ export class Partner implements Actor, Attacker, AnchorPoint {
 
   render(dt: number, now: number, time: number): void {
     this.guardT -= dt;
-    const s = this.b;
+    const s = this.present ? this.b : null;
     const vis = !!s;
     this.sprite.setVisible(vis);
     this.tag.setVisible(vis);
