@@ -10,10 +10,14 @@ import { panel, text } from '../ui/Ui.ts';
 import { coopServerUrl, net, saveCoopServerUrl, type NetMsg } from '../net/Net.ts';
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+/** Display names by room slot: the host is ION, guests MOTH then RU. */
+const NAMES = ['이온', '모스', '루'];
+const ROOM_SIZE = 3;
 
 /**
- * Online co-op lobby: host a room (play as ION) or join one with its code
- * (play as MOTH). The host picks where to start; the guest follows.
+ * Online co-op lobby (two or three players): host a room (play as ION) or
+ * join one with its code (play as MOTH or RU, by arrival). The host picks
+ * where to start once at least one guest is in; guests follow.
  */
 export class CoopScene extends Phaser.Scene {
   private menu: Menu | null = null;
@@ -44,7 +48,7 @@ export class CoopScene extends Phaser.Scene {
     const x = Math.round((GAME_W - w) / 2);
     this.box = this.add.container(0, 0).setDepth(100);
     this.box.add(panel(this, x, 64, w, 178));
-    this.title = text(this, 0, 72, '온라인 협동 — 2인', 'galmuri11b', COLORS.cyan);
+    this.title = text(this, 0, 72, '온라인 협동 — 최대 3인', 'galmuri11b', COLORS.cyan);
     this.title.x = Math.round((GAME_W - this.title.width) / 2);
     this.info = text(this, x + 14, 92, '', 'galmuri9', COLORS.uiDim);
     this.codeText = text(this, 0, 112, '', 'galmuri11b', COLORS.amberHot).setVisible(false);
@@ -52,7 +56,12 @@ export class CoopScene extends Phaser.Scene {
     this.keyHandler = (e) => this.onKey(e);
     this.input.keyboard!.on('keydown', this.keyHandler);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
-    this.offs.push(net.on('peer', () => this.mode === 'host' && this.showHost()));
+    this.offs.push(
+      net.on('peer', () => {
+        if (this.mode === 'host') this.showHost();
+        else if (this.mode === 'wait') this.showWait();
+      }),
+    );
     this.offs.push(net.on('ev', (m) => this.onEvent(m)));
     this.offs.push(net.on('disconnected', () => this.fail('서버와의 연결이 끊어졌습니다.')));
     this.offs.push(net.on('closed', () => this.mode === 'wait' && this.fail('방장이 방을 닫았습니다.')));
@@ -83,7 +92,7 @@ export class CoopScene extends Phaser.Scene {
     this.setInfo(url ? `서버: ${url.replace(/^https?:\/\//, '').slice(0, 34)}` : '서버 주소가 아직 없습니다 — 먼저 설정해 주세요.', url ? COLORS.uiDim : COLORS.amberHot);
     this.setMenu([
       { label: '방 만들기 — 이온으로 플레이', action: () => this.host(), disabled: !url },
-      { label: '방 참가 — 모스로 플레이', action: () => this.showJoin(), disabled: !url },
+      { label: '방 참가 — 모스 / 루로 플레이', action: () => this.showJoin(), disabled: !url },
       { label: '서버 주소 설정', action: () => this.setServer() },
       { label: '돌아가기', action: () => this.back() },
     ], 118);
@@ -121,14 +130,15 @@ export class CoopScene extends Phaser.Scene {
 
   private showHost(): void {
     this.mode = 'host';
-    this.codeText.setText(`방 코드  ${net.code}`).setVisible(true);
+    this.codeText.setText(`방 코드  ${net.code}   ${this.count()}`).setVisible(true);
     this.codeText.x = Math.round((GAME_W - this.codeText.width) / 2);
     if (!net.peer) {
       this.setInfo('동료에게 방 코드를 알려 주세요. 기다리는 중…', COLORS.cyan);
       this.setMenu([{ label: '방 닫기', action: () => this.back() }], 196);
       return;
     }
-    this.setInfo('모스(동료)가 들어왔습니다! 어디서 시작할까요?', COLORS.acid);
+    const who = [...net.peers].sort().map((s) => NAMES[s] ?? '?').join(' · ');
+    this.setInfo(net.peers.size + 1 < ROOM_SIZE ? `${who} 입장! 시작하거나 한 명 더 기다리세요` : `${who} 입장! 어디서 시작할까요?`, COLORS.acid);
     const max = unlockedStage();
     this.setMenu([
       { label: '처음부터 — CHAPTER 1', action: () => this.start(CHAPTER_STARTS[0]) },
@@ -162,16 +172,21 @@ export class CoopScene extends Phaser.Scene {
       this.showWait();
     } catch (e) {
       const r = (e as Error).message;
-      this.fail(r === 'nocode' ? '그런 방이 없습니다. 코드를 확인해 주세요.' : r === 'full' ? '이미 두 사람이 있는 방입니다.' : '방에 들어가지 못했습니다.');
+      this.fail(r === 'nocode' ? '그런 방이 없습니다. 코드를 확인해 주세요.' : r === 'full' ? '이미 세 사람이 있는 방입니다.' : '방에 들어가지 못했습니다.');
     }
   }
 
   private showWait(): void {
     this.mode = 'wait';
-    this.codeText.setText(`방 ${net.code}`).setVisible(true);
+    this.codeText.setText(`방 ${net.code}   ${this.count()}`).setVisible(true);
     this.codeText.x = Math.round((GAME_W - this.codeText.width) / 2);
-    this.setInfo('연결됨! 방장(이온)이 시작하기를 기다리는 중…', COLORS.acid);
+    this.setInfo(`연결됨! ${NAMES[net.slot] ?? '동료'}로 참가 — 방장 대기 중…`, COLORS.acid);
     this.setMenu([{ label: '나가기', action: () => this.back() }], 196);
+  }
+
+  /** Players in the room, e.g. "2/3". */
+  private count(): string {
+    return `${net.peers.size + 1}/${ROOM_SIZE}`;
   }
 
   private onEvent(m: NetMsg): void {

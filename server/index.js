@@ -1,26 +1,29 @@
 // TETHERFALL co-op relay.
 //
-// Two players share a room identified by a 4-character code. The host creates
-// the room, the guest joins it; after that the server forwards every game
-// message from one to the other unchanged. It never runs game logic: the
-// host's game is the authority for enemies, bosses and stage flow.
+// Up to three players share a room identified by a 4-character code. The
+// host (slot 0) creates the room; guests take slots 1 and 2. The server never
+// runs game logic — the host's game is the authority for enemies, bosses and
+// stage flow — it only forwards messages:
+//   • a message with a numeric `to` goes to that slot only,
+//   • anything else goes to everyone else in the room.
 //
 // Control messages (JSON, field `t`):
 //   client → server   create | join {code} | leave | ping {c}
-//   server → client   created {code} | joined {code} | peer {on} | closed |
-//                     error {reason} | pong {c, s} | hello {v}
-// Any other message is relayed verbatim to the other player in the room.
+//   server → client   created {code, slot} | joined {code, slot, slots}
+//                     peer {on, slot, slots} | closed | error {reason}
+//                     pong {c, s} | hello {v}
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
 
 const PORT = Number(process.env.PORT) || 8787;
-const VERSION = 1;
+const VERSION = 2;
 const MAX_ROOMS = 500;
+const ROOM_SIZE = 3;
 const ROOM_IDLE_MS = 2 * 60 * 60 * 1000;
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I
 const CONTROL = new Set(['create', 'join', 'leave', 'ping']);
 
-/** @type {Map<string, { host: any, guest: any, seen: number }>} */
+/** @type {Map<string, { slots: any[], seen: number }>} */
 const rooms = new Map();
 
 function newCode() {
@@ -36,11 +39,7 @@ function send(ws, obj) {
   if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
 }
 
-function peerOf(ws) {
-  const room = ws.room && rooms.get(ws.room);
-  if (!room) return null;
-  return room.host === ws ? room.guest : room.host;
-}
+const present = (room) => room.slots.map((s, i) => (s ? i : -1)).filter((i) => i >= 0);
 
 function leave(ws) {
   const code = ws.room;
@@ -48,15 +47,20 @@ function leave(ws) {
   ws.room = null;
   const room = rooms.get(code);
   if (!room) return;
-  if (room.host === ws) {
+  const slot = room.slots.indexOf(ws);
+  if (slot < 0) return;
+  room.slots[slot] = null;
+  if (slot === 0) {
     // the host's game is the world: without it the room is over
-    send(room.guest, { t: 'closed' });
-    if (room.guest) room.guest.room = null;
+    for (const g of room.slots) {
+      if (!g) continue;
+      send(g, { t: 'closed' });
+      g.room = null;
+    }
     rooms.delete(code);
-  } else if (room.guest === ws) {
-    room.guest = null;
-    send(room.host, { t: 'peer', on: false });
+    return;
   }
+  for (const other of room.slots) send(other, { t: 'peer', on: false, slot, slots: present(room) });
 }
 
 const server = http.createServer((req, res) => {
@@ -91,31 +95,37 @@ wss.on('connection', (ws) => {
         if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'error', reason: 'busy' });
         const code = newCode();
         if (!code) return send(ws, { t: 'error', reason: 'busy' });
-        rooms.set(code, { host: ws, guest: null, seen: Date.now() });
+        rooms.set(code, { slots: [ws, null, null], seen: Date.now() });
         ws.room = code;
-        return send(ws, { t: 'created', code });
+        return send(ws, { t: 'created', code, slot: 0 });
       }
       if (msg.t === 'join') {
         const code = String(msg.code || '').trim().toUpperCase();
         const room = rooms.get(code);
         if (!room) return send(ws, { t: 'error', reason: 'nocode' });
-        if (room.host === ws) return send(ws, { t: 'error', reason: 'self' });
-        if (room.guest && room.guest !== ws) return send(ws, { t: 'error', reason: 'full' });
+        if (room.slots.includes(ws)) return send(ws, { t: 'error', reason: 'self' });
+        const slot = room.slots.findIndex((s, i) => i > 0 && !s);
+        if (slot < 0 || slot >= ROOM_SIZE) return send(ws, { t: 'error', reason: 'full' });
         leave(ws);
-        room.guest = ws;
+        room.slots[slot] = ws;
         room.seen = Date.now();
         ws.room = code;
-        send(ws, { t: 'joined', code });
-        return send(room.host, { t: 'peer', on: true });
+        send(ws, { t: 'joined', code, slot, slots: present(room) });
+        for (const other of room.slots) if (other && other !== ws) send(other, { t: 'peer', on: true, slot, slots: present(room) });
+        return;
       }
       return;
     }
-    // game traffic: forward unchanged
-    const peer = peerOf(ws);
-    if (!peer) return;
-    const room = rooms.get(ws.room);
-    if (room) room.seen = Date.now();
-    if (peer.readyState === 1) peer.send(data, { binary: isBinary });
+    // game traffic: forward unchanged — to one slot, or to everyone else
+    const room = ws.room && rooms.get(ws.room);
+    if (!room) return;
+    room.seen = Date.now();
+    const to = msg && typeof msg.to === 'number' ? msg.to : -1;
+    room.slots.forEach((other, i) => {
+      if (!other || other === ws || other.readyState !== 1) return;
+      if (to >= 0 && i !== to) return;
+      other.send(data, { binary: isBinary });
+    });
   });
 
   ws.on('close', () => leave(ws));
@@ -135,8 +145,7 @@ const beat = setInterval(() => {
   const now = Date.now();
   for (const [code, room] of rooms) {
     if (now - room.seen > ROOM_IDLE_MS) {
-      send(room.host, { t: 'closed' });
-      send(room.guest, { t: 'closed' });
+      for (const s of room.slots) send(s, { t: 'closed' });
       rooms.delete(code);
     }
   }

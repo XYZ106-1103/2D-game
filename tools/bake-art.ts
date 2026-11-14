@@ -5,6 +5,7 @@ import { writePNG, writeJSON } from './lib/png.ts';
 import { packAtlas, upscale, PixelCanvas } from './art/pixel.ts';
 import { buildPlayerSheet } from './art/player.ts';
 import { buildMothSheet } from './art/moth.ts';
+import { buildRuSheet } from './art/ru.ts';
 import { buildTileset } from './art/tiles.ts';
 import { sky, spire, farLayer, midLayer, nearLayer, fogStrip } from './art/backgrounds.ts';
 import { buildProps } from './art/props.ts';
@@ -39,6 +40,7 @@ save('sprites/player.png', player.canvas);
 writeJSON(join(OUT, 'sprites/player.json'), player.json);
 // co-op partner: MOTH's hologram body (same frame layout and metadata as ION)
 save('sprites/moth.png', buildMothSheet().canvas);
+save('sprites/ru.png', buildRuSheet().canvas);
 
 save('sprites/tiles.png', buildTileset());
 for (const [name, kit] of Object.entries({ ...KITS, ...KITS3 })) save(`sprites/tiles_${name}.png`, buildTileset(kit));

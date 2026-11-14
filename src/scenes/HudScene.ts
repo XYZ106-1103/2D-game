@@ -70,8 +70,8 @@ export class HudScene extends Phaser.Scene {
     for (let i = 0; i < PLAYER.hp; i++) this.hp.push(this.add.image(26 + i * 7, 10, 'ui', 'hp_full').setOrigin(0, 0));
     this.add.image(26, 21, 'ui', 'icon_log').setOrigin(0, 0);
     this.logCount = text(this, 37, 20, '0/3', 'galmuri7', COLORS.magenta);
-    // co-op: the partner's name and health under ours
-    this.partnerLbl = text(this, 8, 31, '', 'galmuri7', COLORS.cyan).setVisible(false);
+    // co-op: the partners' names and health under ours (up to two)
+    this.partnerLbls = [0, 1].map((i) => text(this, 8, 31 + i * 9, '', 'galmuri7', COLORS.cyan).setVisible(false));
     this.timer = text(this, GAME_W - 46, 6, '00:00', 'galmuri7', COLORS.uiDim);
 
     // --- dialogue box --------------------------------------------------------------
@@ -131,16 +131,15 @@ export class HudScene extends Phaser.Scene {
     this.input.keyboard!.on('keydown-ENTER', () => this.onConfirm());
   }
 
-  private partnerLbl!: Phaser.GameObjects.BitmapText;
+  private partnerLbls: Phaser.GameObjects.BitmapText[] = [];
 
-  /** Co-op partner status line (null hides it). */
-  partnerInfo(line: string | null, color: number = COLORS.cyan): void {
-    if (!this.partnerLbl) return;
-    if (line === null) {
-      this.partnerLbl.setVisible(false);
-      return;
-    }
-    this.partnerLbl.setVisible(true).setText(line).setTint(color);
+  /** Co-op partner status lines, one per partner (an empty list hides them). */
+  partnerInfo(lines: [string, number][]): void {
+    this.partnerLbls.forEach((lbl, i) => {
+      const l = lines[i];
+      if (l) lbl.setVisible(true).setText(l[0]).setTint(l[1]);
+      else lbl.setVisible(false);
+    });
   }
 
   /** True while a conversation is on screen. */

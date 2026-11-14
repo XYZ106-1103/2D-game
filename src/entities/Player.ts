@@ -888,13 +888,13 @@ export class Player {
     this.juice.sfx('checkpoint', { vol: 0.7, pitch: 1.2 });
   }
 
-  /** Which body is rendered: ION ('player') or MOTH's hologram ('moth', co-op guest). */
-  skin: 'player' | 'moth' = 'player';
-  setSkin(key: 'player' | 'moth'): void {
+  /** Which body is rendered: ION ('player'), MOTH's hologram ('moth') or RU ('ru'); co-op guests. */
+  skin: 'player' | 'moth' | 'ru' = 'player';
+  setSkin(key: 'player' | 'moth' | 'ru'): void {
     this.skin = key;
     this.sprite.setTexture(key, this.frame);
     for (const g of this.ghosts) g.img.setTexture(key, this.frame);
-    this.scarf.ramp = key === 'moth' ? RAMPS.violet : RAMPS.crimson;
+    this.scarf.ramp = key === 'moth' ? RAMPS.violet : key === 'ru' ? RAMPS.amber : RAMPS.crimson;
   }
 
   /** The anchor the rope is attached to, if any. */

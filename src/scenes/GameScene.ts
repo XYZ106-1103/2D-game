@@ -82,10 +82,8 @@ export class GameScene extends Phaser.Scene implements Juice {
   /** Online co-op session (null in single player). */
   coop: Coop | null = null;
   private mirrorHost: MirrorHost | null = null;
-  /** Co-op: the boss waits for both players to be in the arena. */
+  /** Co-op: the boss waits for everyone to be in the arena. */
   private pendingBoss: 'archivist' | 'nocturne' | 'vesper' | null = null;
-  /** Online co-op: the other player's character (a networked puppet), if any. */
-  partner: Actor | null = null;
   /** Boss wind this step (sent to the co-op partner, who feels it locally). */
   windNow = 0;
   /** Cinematic camera override (boss finales): centre and integer zoom. */
@@ -147,7 +145,6 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.cine = null;
     this.coop = null;
     this.mirrorHost = null;
-    this.partner = null;
     this.pendingBoss = null;
     this.exitLocked = false;
     this.anchors = [];
@@ -296,7 +293,8 @@ export class GameScene extends Phaser.Scene implements Juice {
       vesper: { key: 'vs', name: '베스퍼', sub: '천백만의 합의 · THE CONSENSUS', sfx: 'roar', wait: 13800 },
     }[kind];
     const boss = kind === 'nocturne' ? new Nocturne(this) : kind === 'vesper' ? new Vesper(this) : new Archivist(this);
-    if (this.coop) boss.scaleHp(1.5);
+    // co-op: 1.5x for two players, 2x for three
+    if (this.coop) boss.scaleHp(1 + 0.5 * (this.coop.playerCount() - 1));
     this.boss = boss;
     this.exitLocked = true;
     this.combat.extraTargets = () => boss.hookTargets();
@@ -506,9 +504,9 @@ export class GameScene extends Phaser.Scene implements Juice {
   aberration(amount: number): void {
     if (this.post) this.post.aberration = Math.max(this.post.aberration, amount);
   }
-  /** Everyone the world can target or hurt: the player, plus the co-op partner. */
+  /** Everyone the world can target or hurt: the player, plus co-op partners. */
   actors(): readonly Actor[] {
-    return this.partner ? [this.player, this.partner] : [this.player];
+    return this.coop ? [this.player, ...this.coop.livePartners()] : [this.player];
   }
 
   /** The actor a threat at (x, y) should go after: the nearest living one. */
@@ -616,7 +614,7 @@ export class GameScene extends Phaser.Scene implements Juice {
     while (this.acc >= STEP && steps < MAX_STEPS_PER_FRAME) {
       this.gimmicks.fixedUpdate(STEP, this.player);
       this.hookTargets = (this.anchors as AnchorPoint[]).concat(this.gimmicks.anchors(), this.combat.targets());
-      if (this.coop && this.coop.partner.present) this.hookTargets.push(this.coop.partner);
+      if (this.coop) this.hookTargets.push(...this.coop.livePartners());
       this.player.fixedUpdate(STEP, this.controls, this.hookTargets);
       this.windNow = 0;
       if (this.mirrorHost) {
@@ -828,11 +826,11 @@ export class GameScene extends Phaser.Scene implements Juice {
     const atExit = (a: Actor) => !a.dead && Math.abs(a.x - this.exit.x) < 12 && Math.abs(a.feetY - this.exit.y) < 20;
     if (this.state === 'play' && !this.exitLocked && atExit(p)) {
       if (!this.coop) this.stageClear();
-      else if (this.coop.role === 'host' && (!net.peer || (this.partner && atExit(this.partner)))) this.stageClear();
+      else if (this.coop.role === 'host' && this.coop.othersAt(atExit)) this.stageClear();
       else if (this.coopExitT <= 0) {
-        // co-op: the stage clears when both players stand at the exit
+        // co-op: the stage clears when everyone stands at the exit
         this.coopExitT = 2.5;
-        this.hud?.toast('CO-OP', '출구 — 동료를 기다리는 중');
+        this.hud?.toast('CO-OP', '출구 — 동료들을 기다리는 중');
       }
     }
     this.coopExitT -= dt;

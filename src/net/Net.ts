@@ -1,5 +1,5 @@
 // Online co-op connection: a WebSocket to the relay server (server/), which
-// pairs two players in a room and forwards their messages.
+// holds up to three players in a room and forwards their messages.
 
 export type Role = 'host' | 'guest';
 export type NetMsg = { t: string; [k: string]: unknown };
@@ -44,8 +44,14 @@ class NetClient {
   private pingTimer: number | null = null;
   role: Role | null = null;
   code = '';
-  /** The other player is in the room. */
-  peer = false;
+  /** Our place in the room: 0 = host (ION), 1 = MOTH, 2 = RU. */
+  slot = 0;
+  /** Slots of the other players currently in the room. */
+  peers = new Set<number>();
+  /** Someone else is in the room. */
+  get peer(): boolean {
+    return this.peers.size > 0;
+  }
   /** Round-trip time to the relay, ms. */
   rtt = 0;
   status: 'idle' | 'waking' | 'connecting' | 'open' | 'closed' = 'idle';
@@ -69,8 +75,13 @@ class NetClient {
     for (const h of this.handlers.get('*') ?? []) h(m);
   }
 
+  /** Send to everyone else in the room (or to one slot with `to`); tagged with our slot. */
   send(m: NetMsg): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(m));
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ ...m, src: this.slot }));
+  }
+
+  private setPeers(slots: unknown): void {
+    this.peers = new Set((Array.isArray(slots) ? (slots as number[]) : []).filter((s) => s !== this.slot));
   }
 
   /**
@@ -115,7 +126,7 @@ class NetClient {
       ws.onclose = () => {
         const was = this.status;
         this.status = 'closed';
-        this.peer = false;
+        this.peers.clear();
         if (this.pingTimer !== null) window.clearInterval(this.pingTimer);
         this.pingTimer = null;
         if (was === 'open') this.emit({ t: 'disconnected' });
@@ -132,9 +143,16 @@ class NetClient {
           this.status = 'open';
           resolve();
         } else if (m.t === 'pong') this.rtt = Date.now() - Number(m.c);
-        else if (m.t === 'peer') this.peer = !!m.on;
+        else if (m.t === 'peer') {
+          // a v1 relay (two players, not yet redeployed) sends no slots
+          if (m.slots === undefined) {
+            m.slot = this.role === 'host' ? 1 : 0;
+            m.slots = m.on ? [0, 1] : [this.slot];
+          }
+          this.setPeers(m.slots);
+        }
         else if (m.t === 'closed') {
-          this.peer = false;
+          this.peers.clear();
           this.role = null;
         }
         this.emit(m);
@@ -151,7 +169,8 @@ class NetClient {
         off2();
         this.role = 'host';
         this.code = String(m.code);
-        this.peer = false;
+        this.slot = 0;
+        this.peers.clear();
         resolve(this.code);
       });
       const off2 = this.on('error', (m) => {
@@ -171,7 +190,8 @@ class NetClient {
         off2();
         this.role = 'guest';
         this.code = String(m.code);
-        this.peer = true;
+        this.slot = Number(m.slot) || 1;
+        this.setPeers(m.slots ?? [0, 1]);
         resolve();
       });
       const off2 = this.on('error', (m) => {
@@ -198,7 +218,8 @@ class NetClient {
     this.ws = null;
     this.role = null;
     this.code = '';
-    this.peer = false;
+    this.slot = 0;
+    this.peers.clear();
     this.status = 'idle';
   }
 }

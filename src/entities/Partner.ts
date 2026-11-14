@@ -19,7 +19,7 @@ export interface PartnerState {
   fc: number;
   al: number;
   wf: boolean;
-  sk: 'player' | 'moth';
+  sk: 'player' | 'moth' | 'ru';
   /** slash smear [frame, rotation] or 0 */
   sl: [number, number] | 0;
   /** rope: [state 1 flying / 2 attached / 3 zip, hookX, hookY, pivots…] or 0 */
@@ -62,8 +62,14 @@ export class Partner implements Actor, Attacker, AnchorPoint {
   anchorById: (id: number) => AnchorPoint | null = () => null;
   facing = 1;
   attackId = 0;
+  /** Room slot of the player this puppet stands for (0 host, 1, 2). */
+  readonly slot: number;
+  /** Where their latest swing landed (for the hit feedback sent back). */
+  hitX = 0;
+  hitY = 0;
 
-  constructor(scene: Phaser.Scene, x: number, y: number, label: string) {
+  constructor(scene: Phaser.Scene, x: number, y: number, label: string, slot: number) {
+    this.slot = slot;
     this.sheet = scene.cache.json.get('player-sheet') as PlayerSheet;
     this.body = makeBody(x, y - PLAYER.h / 2, PLAYER.w, PLAYER.h);
     this.sprite = scene.add.sprite(x, y, 'player', 0).setDepth(DEPTH.player - 0.5);
@@ -178,7 +184,7 @@ export class Partner implements Actor, Attacker, AnchorPoint {
     }
     if (this.sprite.texture.key !== s.sk) {
       this.sprite.setTexture(s.sk, s.f);
-      this.scarf.ramp = s.sk === 'moth' ? RAMPS.violet : RAMPS.crimson;
+      this.scarf.ramp = s.sk === 'moth' ? RAMPS.violet : s.sk === 'ru' ? RAMPS.amber : RAMPS.crimson;
     }
     this.sprite.setFrame(s.f).setFlipX(s.fc < 0).setPosition(Math.round(ix), Math.round(iy + PLAYER.h / 2));
     const blink = this.guardT > 0 && Math.floor(time * 20) % 2 === 0;

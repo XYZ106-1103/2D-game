@@ -1,8 +1,8 @@
 {
   "name": "tetherfall-coop-server",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "TETHERFALL online co-op relay: two-player rooms over WebSocket",
+  "description": "TETHERFALL online co-op relay: rooms of up to three players over WebSocket",
   "type": "module",
   "main": "index.js",
   "scripts": {

@@ -123,7 +123,7 @@ export class TitleScene extends Phaser.Scene {
       { label: UI_TEXT.newGame, action: () => this.go(false) },
       { label: UI_TEXT.continue, action: () => this.go(true), disabled: !progress },
       { label: UI_TEXT.stageSelect, action: () => this.openStageSelect(), disabled: unlockedStage() < 1 },
-      { label: '온라인 협동 (2인)', action: () => this.goCoop() },
+      { label: '온라인 협동 (최대 3인)', action: () => this.goCoop() },
       { label: UI_TEXT.controls, action: () => this.openOverlay('controls') },
       { label: UI_TEXT.options, action: () => this.openOverlay('options') },
     ]);

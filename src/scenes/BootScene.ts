@@ -23,6 +23,7 @@ export class BootScene extends Phaser.Scene {
     this.load.setPath('assets/');
     this.load.spritesheet('player', 'sprites/player.png', { frameWidth: 48, frameHeight: 48 });
     this.load.spritesheet('moth', 'sprites/moth.png', { frameWidth: 48, frameHeight: 48 });
+    this.load.spritesheet('ru', 'sprites/ru.png', { frameWidth: 48, frameHeight: 48 });
     this.load.json('player-sheet', 'sprites/player.json');
     this.load.image('tiles', 'sprites/tiles.png');
     for (const k of ['archive', 'refinery', 'core', 'memory', 'garden', 'mast', 'sunroof', 'drowned', 'avenue', 'transit', 'lab', 'harbor', 'clock']) this.load.image(`tiles-${k}`, `sprites/tiles_${k}.png`);

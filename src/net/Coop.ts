@@ -11,14 +11,14 @@ import type { HitKind, HitResult } from '../entities/enemies/Enemy.ts';
 import type { GameScene } from '../scenes/GameScene.ts';
 import type { HudScene } from '../scenes/HudScene.ts';
 
-// Online co-op session inside a stage.
+// Online co-op session inside a stage (two or three players).
 //
 // Each player simulates their own character and sends its state ~30 times a
-// second. The host simulates the world (enemies, bosses, stage flow) and sends
-// a mirror of it ~20 times a second; the guest's attacks and zip strikes are
-// resolved on the host, and the damage the guest takes is sent back to it.
-// Shared progress (checkpoints, logs, dialogue, switches, crumbling blocks,
-// alarms) travels as small events in both directions.
+// second to everyone. The host simulates the world (enemies, bosses, stage
+// flow) and sends a mirror of it ~20 times a second; guests' attacks and zip
+// strikes are resolved on the host, and the damage a guest takes is sent back
+// to that guest only. Shared progress (checkpoints, logs, dialogue, switches,
+// crumbling blocks, alarms) travels as small events between all players.
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
 
@@ -26,8 +26,15 @@ const r1 = (v: number) => Math.round(v * 10) / 10;
 type Env = { w: number; dk: number; xl: boolean; bh: number; cine: number[] | null; pst: number[] | null };
 const STATE_HZ = 30;
 const SNAP_HZ = 20;
-/** Guest attack ids live in their own range so they never collide with the host's. */
+/** Each guest's attack ids live in their own range so they never collide. */
 const GUEST_ID = 1_000_000;
+/** Who plays which body: slot 0 hosts as ION, guests are MOTH and RU. */
+export const COOP_NAMES = ['ION', 'MOTH', 'RU'];
+const SKINS = ['player', 'moth', 'ru'] as const;
+/** Host: how long the first ready guest waits for the others before play begins. */
+const GATE_WAIT = 6;
+/** Host: how long to wait for guests who are still loading before starting anyway. */
+const GATE_MAX = 15;
 
 /** A hook target that lives in the host's world (enemy, boss part, lantern). */
 class RemoteAnchor implements AnchorPoint {
@@ -83,7 +90,9 @@ interface Link {
 
 export class Coop {
   readonly role: Role;
-  readonly partner: Partner;
+  /** Puppets of the other players, by room slot. */
+  readonly partners = new Map<number, Partner>();
+  private scene: GameScene;
   private g: Link;
   private mirror: MirrorHost | null;
   private guest: MirrorGuest | null;
@@ -91,10 +100,13 @@ export class Coop {
   private stateT = 0;
   private snapT = 0;
   private gateT = 0;
-  /** Both players are in this stage and play has begun. */
+  /** Everyone is in this stage and play has begun. */
   started = false;
   /** Host: a (re)joined guest still needs the stage + a full mirror. */
   private hostWaiting = true;
+  /** Host: guests that reported ready in this stage. */
+  private readySlots = new Set<number>();
+  private gateWait = -1;
   /** Applying a remote event right now (don't echo it back). */
   relaying = false;
   // host → guest side channels, collected between snapshots
@@ -118,49 +130,50 @@ export class Coop {
   private wasDowned = false;
   private tugT = 0;
   private infoT = 0;
-  private myVote = -1;
-  private peerVote = -1;
+  /** Host: votes on the final decision, by slot. */
+  private votes = new Map<number, number>();
   private choosing = false;
 
   constructor(scene: GameScene, role: Role, mirror: MirrorHost | null) {
+    this.scene = scene;
     this.g = scene as unknown as Link;
     this.role = role;
     this.mirror = mirror;
     this.guest = role === 'guest' ? new MirrorGuest(scene) : null;
     const p = this.g.player;
-    this.partner = new Partner(scene, p.x, p.feetY, role === 'host' ? 'MOTH' : 'ION');
-    scene.partner = this.partner;
-    if (role === 'guest') p.setSkin('moth');
+    p.setSkin(SKINS[net.slot] ?? 'moth');
     p.controlLocked = true;
     p.coopDown = true;
     this.ring = scene.add.graphics().setDepth(DEPTH.fx);
-
-    // partner → network
-    this.partner.onHurt = (d, x, hz) => this.event({ e: 'hurt', d, x: r1(x), hz });
-    this.partner.onPush = (vx, vy) => this.event({ e: 'push', vx, vy });
-    this.partner.onLanded = (r, dir, kind) => this.event({ e: 'landed', r, dir, kind, x: r1(this.lastHitX), y: r1(this.lastHitY) });
-    this.partner.anchorById = (id) => this.anchorsById.get(id) ?? null;
+    for (const s of net.peers) this.partnerFor(s);
 
     if (role === 'host') this.wrapHost();
     else this.wrapGuest();
     this.wrapShared();
 
-    this.offs.push(net.on('ps', (m) => this.partner.apply(m as unknown as PartnerState, performance.now())));
+    this.offs.push(
+      net.on('ps', (m) => {
+        const src = Number(m.src);
+        if (src !== net.slot && net.peers.has(src)) this.partnerFor(src).apply(m as unknown as PartnerState, performance.now());
+      }),
+    );
     this.offs.push(net.on('ws', (m) => this.onSnapshot(m)));
     this.offs.push(net.on('ev', (m) => this.onEvent(m)));
     this.offs.push(
       net.on('peer', (m) => {
+        const slot = Number(m.slot);
         if (m.on) {
+          this.partnerFor(slot);
           this.hostWaiting = true;
           this.mirror?.resync();
-        } else this.lost();
+        } else this.peerLeft(slot);
       }),
     );
-    this.offs.push(net.on('closed', () => this.lost(true)));
-    this.offs.push(net.on('disconnected', () => this.lost(true)));
+    this.offs.push(net.on('closed', () => this.lost()));
+    this.offs.push(net.on('disconnected', () => this.lost()));
     // the HUD scene finishes creating on the next tick
     this.g.time.delayedCall(60, () => {
-      if (!this.started) this.g.hud?.toast('CO-OP', '동료를 기다리는 중…');
+      if (!this.started) this.g.hud?.toast('CO-OP', '동료들을 기다리는 중…');
     });
   }
 
@@ -173,16 +186,64 @@ export class Coop {
     net.send({ t: 'ev', ...ev });
   }
 
-  /** Protocol reply: always sent, even while handling the partner's event. */
+  /** Protocol reply or a message for one player: always sent, even while relaying. */
   private reply(ev: Record<string, unknown>): void {
     net.send({ t: 'ev', ...ev });
   }
 
+  /** The puppet for a room slot (made on first sight). */
+  private partnerFor(slot: number): Partner {
+    const had = this.partners.get(slot);
+    if (had) return had;
+    const p = this.g.player;
+    const pt = new Partner(this.scene, p.x, p.feetY, COOP_NAMES[slot] ?? '?', slot);
+    // the host's world reaches this guest only
+    pt.onHurt = (d, x, hz) => this.reply({ e: 'hurt', to: slot, d, x: r1(x), hz });
+    pt.onPush = (vx, vy) => this.reply({ e: 'push', to: slot, vx, vy });
+    pt.onLanded = (r, dir, kind) => this.reply({ e: 'landed', to: slot, r, dir, kind, x: r1(pt.hitX), y: r1(pt.hitY) });
+    pt.anchorById = (id) => this.anchorsById.get(id) ?? null;
+    this.partners.set(slot, pt);
+    return pt;
+  }
+
+  /** Partners in the room whose state is arriving. */
+  livePartners(): Partner[] {
+    const out: Partner[] = [];
+    for (const pt of this.partners.values()) if (pt.present && net.peers.has(pt.slot)) out.push(pt);
+    return out;
+  }
+
+  /** Players in the session, us included. */
+  playerCount(): number {
+    return 1 + net.peers.size;
+  }
+
+  /** Every other player in the room stands at the exit. */
+  othersAt(at: (a: Partner) => boolean): boolean {
+    for (const s of net.peers) {
+      const pt = this.partners.get(s);
+      if (!pt || !pt.present || !at(pt)) return false;
+    }
+    return true;
+  }
+
+  private peerLeft(slot: number): void {
+    const g = this.g;
+    if (this.role === 'guest' && slot === 0) {
+      this.lost();
+      return;
+    }
+    this.partners.get(slot)?.clear();
+    this.readySlots.delete(slot);
+    g.hud?.toast('CO-OP', `${COOP_NAMES[slot] ?? '동료'} 연결이 끊어졌습니다`);
+    if (this.role === 'host' && this.votes.size > 0) {
+      this.votes.delete(slot);
+      this.tally();
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // wiring
-
-  private lastHitX = 0;
-  private lastHitY = 0;
 
   private wrapHost(): void {
     const g = this.g;
@@ -231,7 +292,7 @@ export class Coop {
     const g = this.g;
     // the guest's zip strikes land in the host's world
     g.player.onZipStrike = (t) => {
-      if (t instanceof RemoteAnchor) this.event({ e: 'zip', id: t.id, a: g.player.attackId + GUEST_ID });
+      if (t instanceof RemoteAnchor) this.event({ e: 'zip', to: 0, id: t.id, a: g.player.attackId + GUEST_ID * net.slot });
     };
     // hook targets = the host's enemies / boss parts / lanterns
     g.combat.extraTargets = () => [...this.remote.values()].filter((a) => a.alive);
@@ -279,17 +340,20 @@ export class Coop {
     }
   }
 
-  /** Host, every fixed step: the guest's swings resolve against the world. */
+  /** Host, every fixed step: the guests' swings resolve against the world. */
   hostStep(): void {
-    const hb = this.partner.attackHitbox();
-    if (!hb || !this.mirror) return;
-    const c = this.g.combat;
-    this.lastHitX = hb.x + hb.w / 2;
-    this.lastHitY = hb.y + hb.h / 2;
-    c.feedbackMode = 'fx';
-    this.mirror.run(() => c.resolveHitbox(hb, this.partner));
-    c.feedbackMode = 'full';
     if (this.g.windNow !== 0) this.windMax = this.g.windNow;
+    if (!this.mirror) return;
+    const c = this.g.combat;
+    for (const pt of this.livePartners()) {
+      const hb = pt.attackHitbox();
+      if (!hb) continue;
+      pt.hitX = hb.x + hb.w / 2;
+      pt.hitY = hb.y + hb.h / 2;
+      c.feedbackMode = 'fx';
+      this.mirror.run(() => c.resolveHitbox(hb, pt));
+      c.feedbackMode = 'full';
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -298,13 +362,23 @@ export class Coop {
   frame(real: number): void {
     const now = performance.now();
     const g = this.g;
-    this.partner.render(real, now, now / 1000);
-    // gate: both players in the same stage before play begins
+    for (const pt of this.partners.values()) pt.render(real, now, now / 1000);
+    // gate: everyone in the same stage before play begins
+    if (this.role === 'host') {
+      this.hostWaiting = [...net.peers].some((s) => !this.readySlots.has(s));
+      if (!this.started) {
+        // nobody waits forever: a slow guest joins late with its own go,
+        // and with nobody left in the room the host plays on (they can rejoin)
+        if (this.gateWait < 0) this.gateWait = net.peer ? GATE_MAX : 2;
+        this.gateWait -= real;
+        if (this.gateWait < 0) this.hostBegin();
+      }
+    }
     this.gateT -= real;
     if (this.gateT <= 0) {
       this.gateT = 0.5;
-      if (this.role === 'host' && this.hostWaiting && net.peer) this.event({ e: 'stage', i: g.stageIndex });
-      if (this.role === 'guest' && !this.started) this.event({ e: 'ready', i: g.stageIndex });
+      if (this.role === 'host' && this.hostWaiting) this.reply({ e: 'stage', i: g.stageIndex });
+      if (this.role === 'guest' && !this.started) this.reply({ e: 'ready', to: 0, i: g.stageIndex });
     }
     // own state out
     this.stateT -= real;
@@ -322,11 +396,11 @@ export class Coop {
     this.rules(real, now);
   }
 
-  /** Co-op rules: downed / revive, tugging the partner, the partner status line. */
+  /** Co-op rules: downed / revive, tugging a partner, the partner status lines. */
   private rules(real: number, now: number): void {
     const g = this.g;
     const p = g.player;
-    const pt = this.partner;
+    const live = this.livePartners();
     const ring = this.ring;
     ring.clear();
     if (p.downed) {
@@ -334,14 +408,15 @@ export class Coop {
         this.wasDowned = true;
         g.hud.toast('DOWN', '쓰러짐 — 동료가 다가오면 일어납니다');
       }
-      const near = pt.present && !pt.dead && Math.hypot(pt.x - p.x, pt.y - p.y) < 30;
+      const able = live.filter((pt) => !pt.dead && !pt.downed);
+      const near = able.some((pt) => Math.hypot(pt.x - p.x, pt.y - p.y) < 30);
       this.reviveT = near ? this.reviveT + real : Math.max(0, this.reviveT - real);
-      // both down (or alone): nobody is coming
-      if (!net.peer || pt.downed || !pt.present) p.downT = Math.min(p.downT, 0.05);
+      // everyone down (or alone): nobody is coming
+      if (able.length === 0) p.downT = Math.min(p.downT, 0.05);
       if (this.reviveT >= 1.2) {
         this.reviveT = 0;
         p.revive();
-        this.event({ e: 'revived' });
+        this.reply({ e: 'revived' });
       }
       const cx = p.x;
       const cy = p.y - 2;
@@ -356,25 +431,34 @@ export class Coop {
       this.reviveT = 0;
     }
     // a downed partner calls for help
-    if (pt.present && pt.downed) {
+    for (const pt of live) {
+      if (!pt.downed) continue;
       const k = 0.5 + Math.sin(now / 120) * 0.5;
       ring.lineStyle(2, COLORS.cyanHot, 0.5 + k * 0.5).strokeCircle(pt.x, pt.y - 2, 14 + k * 4);
     }
-    // tug: reel in while hooked to the partner to haul them toward you
+    // tug: reel in while hooked to a partner to haul them toward you
     this.tugT -= real;
-    if (p.grapple.attached && p.grapple.attachedTo === pt && g.player.controlLocked === false && (g as unknown as { controls: { up: boolean } }).controls.up && this.tugT <= 0) {
+    const held = p.grapple.attached ? live.find((pt) => pt === p.grapple.attachedTo) : undefined;
+    if (held && g.player.controlLocked === false && (g as unknown as { controls: { up: boolean } }).controls.up && this.tugT <= 0) {
       this.tugT = 0.1;
-      this.event({ e: 'tug', x: r1(p.x), y: r1(p.y) });
+      this.reply({ e: 'tug', to: held.slot, x: r1(p.x), y: r1(p.y) });
     }
     // partner status under our health
     this.infoT -= real;
     if (this.infoT <= 0) {
       this.infoT = 0.25;
-      const name = this.role === 'host' ? 'MOTH' : 'ION';
-      if (!net.peer && this.role === 'host') g.hud.partnerInfo(`${name}  연결 끊김`, COLORS.uiDim);
-      else if (!pt.present) g.hud.partnerInfo(`${name}  …`, COLORS.uiDim);
-      else if (pt.downed) g.hud.partnerInfo(`${name}  쓰러짐!`, COLORS.crimsonHot);
-      else g.hud.partnerInfo(`${name}  HP ${pt.hp}`, COLORS.cyan);
+      const lines: [string, number][] = [];
+      for (let s = 0; s < COOP_NAMES.length; s++) {
+        if (s === net.slot) continue;
+        const name = COOP_NAMES[s];
+        const pt = this.partners.get(s);
+        if (!net.peers.has(s)) {
+          if (pt) lines.push([`${name}  연결 끊김`, COLORS.uiDim]);
+        } else if (!pt || !pt.present) lines.push([`${name}  …`, COLORS.uiDim]);
+        else if (pt.downed) lines.push([`${name}  쓰러짐!`, COLORS.crimsonHot]);
+        else lines.push([`${name}  HP ${pt.hp}`, COLORS.cyan]);
+      }
+      g.hud.partnerInfo(lines);
     }
   }
 
@@ -410,7 +494,7 @@ export class Coop {
       sk: p.skin,
       sl,
       rp,
-      hb: h ? [r1(h.x), r1(h.y), h.w, h.h, h.id + (this.role === 'guest' ? GUEST_ID : 0), h.kind] : 0,
+      hb: h ? [r1(h.x), r1(h.y), h.w, h.h, h.id + GUEST_ID * net.slot, h.kind] : 0,
       hp: p.hp,
       dead: p.dead,
       dn: !!pv.downed,
@@ -435,9 +519,8 @@ export class Coop {
     if (!this.mirror) return;
     if (this.hostWaiting) this.mirror.resync();
     const m = this.mirror.packet();
-    // hook targets near the partner
-    const px = this.partner.x;
-    const py = this.partner.y;
+    // hook targets near any guest
+    const near = this.livePartners();
     const an: number[][] = [];
     const list: AnchorPoint[] = [];
     for (const e of g.combat.enemies) if (e.hookable) list.push(e);
@@ -447,7 +530,7 @@ export class Coop {
     for (const a of list) {
       if (seen.has(a) || a.alive === false) continue;
       seen.add(a);
-      if (Math.abs(a.x - px) > 420 || Math.abs(a.y - py) > 300) continue;
+      if (!near.some((pt) => Math.abs(a.x - pt.x) < 420 && Math.abs(a.y - pt.y) < 300)) continue;
       an.push([this.anchorId(a), r1(a.x), r1(a.y), a.hookRadius ?? 10, a.isEnemy ? 1 : 0]);
     }
     const pl = g.gimmicks.devices3.extraPlats.map((p) => [r1(p.x), r1(p.y), r1(p.w), r1(p.h), Math.round(p.vx)]);
@@ -570,16 +653,22 @@ export class Coop {
         case 'stage':
           if (this.role === 'guest' && Number(m.i) !== g.stageIndex) g.coopGoto(Number(m.i));
           break;
-        case 'ready':
-          if (this.role === 'host' && Number(m.i) === g.stageIndex) {
-            this.hostWaiting = false;
-            this.mirror?.resync();
-            this.reply({ e: 'go' });
-            this.begin();
-          } else if (this.role === 'host') this.reply({ e: 'stage', i: g.stageIndex });
+        case 'ready': {
+          if (this.role !== 'host') break;
+          const src = Number(m.src);
+          if (Number(m.i) !== g.stageIndex) {
+            this.reply({ e: 'stage', to: src, i: g.stageIndex });
+            break;
+          }
+          if (!this.readySlots.has(src)) this.mirror?.resync();
+          this.readySlots.add(src);
+          if (this.started) this.reply({ e: 'go', to: src, i: g.stageIndex });
+          else if ([...net.peers].every((s) => this.readySlots.has(s))) this.hostBegin();
+          else this.gateWait = Math.min(this.gateWait < 0 ? GATE_WAIT : this.gateWait, GATE_WAIT);
           break;
+        }
         case 'go':
-          if (this.role === 'guest') this.begin();
+          if (this.role === 'guest' && Number(m.i) === g.stageIndex) this.begin();
           break;
         case 'hurt':
           g.player.hurt(Number(m.d), Number(m.x), !!m.hz);
@@ -606,7 +695,7 @@ export class Coop {
           break;
         }
         case 'revived':
-          g.hud.toast('CO-OP', '동료를 일으켰다!');
+          g.hud.toast('CO-OP', `${COOP_NAMES[Number(m.src)] ?? '동료'} 다시 일어남!`);
           audio.play('checkpoint', { vol: 0.6, pitch: 1.3 });
           break;
         case 'landed': {
@@ -619,12 +708,13 @@ export class Coop {
         }
         case 'zip': {
           const t = this.anchorsById.get(Number(m.id));
-          if (this.role === 'host' && t && this.mirror) {
-            this.lastHitX = t.x;
-            this.lastHitY = t.y;
-            this.partner.attackId = Number(m.a);
+          const pt = this.partners.get(Number(m.src));
+          if (this.role === 'host' && t && pt && this.mirror) {
+            pt.hitX = t.x;
+            pt.hitY = t.y;
+            pt.attackId = Number(m.a);
             g.combat.feedbackMode = 'fx';
-            this.mirror.run(() => g.combat.zipStrikeBy(this.partner, t));
+            this.mirror.run(() => g.combat.zipStrikeBy(pt, t));
             g.combat.feedbackMode = 'full';
           }
           break;
@@ -690,8 +780,13 @@ export class Coop {
           if (this.role === 'guest') this.openChoice();
           break;
         case 'vote':
-          this.peerVote = Number(m.i);
-          this.checkVotes();
+          if (this.role === 'host') {
+            this.votes.set(Number(m.src), Number(m.i));
+            this.tally();
+          }
+          break;
+        case 'revote':
+          if (this.role === 'guest') this.disagree();
           break;
         case 'end':
           if (this.role === 'guest') g.endChapter3(m.kind as 'good' | 'bad');
@@ -702,6 +797,13 @@ export class Coop {
     } finally {
       this.relaying = false;
     }
+  }
+
+  /** Host: play begins for everyone ready (late guests get their own go). */
+  private hostBegin(): void {
+    this.gateWait = -1;
+    this.reply({ e: 'go', i: this.g.stageIndex });
+    this.begin();
   }
 
   private begin(): void {
@@ -715,24 +817,24 @@ export class Coop {
 
   /** Host: crate positions follow whoever is dragging them. */
   syncCrates(): void {
-    const s = (this.partner as unknown as { b: { cr?: number[] } | null }).b;
-    const cr = s?.cr;
-    if (!cr) return;
-    const c = this.g.gimmicks.devices3.crates[cr[0]];
-    if (c) {
-      c.body.x = cr[1];
-      c.body.y = cr[2];
-      c.body.vx = 0;
+    for (const pt of this.livePartners()) {
+      const cr = (pt as unknown as { b: { cr?: number[] } | null }).b?.cr;
+      if (!cr) continue;
+      const c = this.g.gimmicks.devices3.crates[cr[0]];
+      if (c) {
+        c.body.x = cr[1];
+        c.body.y = cr[2];
+        c.body.vx = 0;
+      }
     }
   }
 
   // ---------------------------------------------------------------------------
-  // the final decision: both players vote; it holds only when they agree
+  // the final decision: everyone votes; it holds only when all agree
 
-  /** Host: the decision opens for both. */
+  /** Host: the decision opens for everyone. */
   hostChoice(): void {
-    this.myVote = -1;
-    this.peerVote = -1;
+    this.votes.clear();
     this.event({ e: 'choice' });
     this.openChoice();
   }
@@ -740,54 +842,64 @@ export class Coop {
   private openChoice(): void {
     if (this.choosing) return;
     this.choosing = true;
-    this.myVote = -1;
     const g = this.g;
     g.hud.letterbox(true);
-    g.hud.showChoice('합의 코어 — 두 사람의 선택', ['열쇠로 돌려준다 — 각자 선택하게', '합의를 멈추고, 모든 기억을 영원히 고정한다'], (i) => {
+    const who = this.playerCount() > 2 ? '세 사람의 선택' : '두 사람의 선택';
+    g.hud.showChoice(`합의 코어 — ${who}`, ['열쇠로 돌려준다 — 각자 선택하게', '합의를 멈추고, 모든 기억을 영원히 고정한다'], (i) => {
       this.choosing = false;
-      this.myVote = i;
-      this.reply({ e: 'vote', i });
-      if (this.peerVote < 0) g.hud.toast('CO-OP', '동료의 선택을 기다리는 중…');
-      this.checkVotes();
+      if (this.role === 'host') {
+        this.votes.set(0, i);
+        if (!this.tally()) g.hud.toast('CO-OP', '동료의 선택을 기다리는 중…');
+      } else {
+        this.reply({ e: 'vote', to: 0, i });
+        g.hud.toast('CO-OP', '다른 사람의 선택을 기다리는 중…');
+      }
     });
   }
 
-  private checkVotes(): void {
-    if (this.myVote < 0 || this.peerVote < 0) return;
+  /** Host: once everyone in the room voted, end on a unanimous choice or ask again. */
+  private tally(): boolean {
     const g = this.g;
-    if (this.myVote === this.peerVote) {
-      if (this.role === 'host') {
-        const kind = this.myVote === 0 ? 'good' : 'bad';
-        this.reply({ e: 'end', kind });
-        g.endChapter3(kind);
-      }
-      return;
+    const voters = [0, ...net.peers];
+    if (!voters.every((s) => this.votes.has(s))) return false;
+    const first = this.votes.get(0)!;
+    if (voters.every((s) => this.votes.get(s) === first)) {
+      const kind = first === 0 ? 'good' : 'bad';
+      this.votes.clear();
+      this.reply({ e: 'end', kind });
+      g.endChapter3(kind);
+      return true;
     }
-    // disagreement: ask again
-    g.hud.toast('CO-OP', '의견이 다릅니다 — 다시 골라 주세요');
-    this.myVote = -1;
-    this.peerVote = -1;
-    g.time.delayedCall(1400, () => this.openChoice());
+    this.votes.clear();
+    this.reply({ e: 'revote' });
+    this.disagree();
+    return true;
+  }
+
+  /** Disagreement: everyone picks again. */
+  private disagree(): void {
+    this.g.hud.toast('CO-OP', '의견이 다릅니다 — 다시 골라 주세요');
+    this.g.time.delayedCall(1400, () => this.openChoice());
   }
 
   // ---------------------------------------------------------------------------
 
-  private lost(fatal = false): void {
+  /** We lost the room (the host left, or our own connection dropped). */
+  private lost(): void {
     const g = this.g;
-    g.hud?.toast('CO-OP', '동료와의 연결이 끊어졌습니다');
-    this.partner.clear();
+    g.hud?.toast('CO-OP', this.role === 'guest' ? '방장과의 연결이 끊어졌습니다' : '서버와의 연결이 끊어졌습니다');
+    for (const pt of this.partners.values()) pt.clear();
     this.remote.clear();
-    if (this.role === 'guest' || fatal) {
-      // without the host there is no world to play in
-      if (this.role === 'guest') g.time.delayedCall(2500, () => (g as unknown as { coopLeave(): void }).coopLeave());
-    }
+    // without the host there is no world to play in
+    if (this.role === 'guest') g.time.delayedCall(2500, () => (g as unknown as { coopLeave(): void }).coopLeave());
   }
 
   destroy(): void {
     for (const off of this.offs) off();
     this.offs = [];
     this.guest?.clear();
-    this.partner.destroy();
+    for (const pt of this.partners.values()) pt.destroy();
+    this.partners.clear();
     this.ring.destroy();
   }
 }
