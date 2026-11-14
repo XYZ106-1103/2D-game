@@ -41,9 +41,16 @@ function field(x: number, y: number, mood: 'idle' | 'speak' | 'hurt' | 'calm'): 
   return Math.max(0.05, Math.min(1, v));
 }
 
-function face(mood: 'idle' | 'speak' | 'hurt' | 'calm'): PixelCanvas {
+const WARM = [0x2a1a10, 0x5a3a1a, 0x9a6a2a, 0xd8a050, 0xffd890, 0xfff4d0];
+
+/**
+ * @param warmFrom screens whose distance from the face centre (0 centre .. 1 rim)
+ *   is at least this value glow warm instead of cold — the finale turns the face
+ *   from the rim inward.
+ */
+function face(mood: 'idle' | 'speak' | 'hurt' | 'calm', warmFrom = 2): PixelCanvas {
   const c = new PixelCanvas(W, H);
-  const ramp = mood === 'calm' ? [0x2a1a10, 0x5a3a1a, 0x9a6a2a, 0xd8a050, 0xffd890, 0xfff4d0] : mood === 'hurt' ? [0x200810, 0x4a0e20, 0x8a1a32, 0xd42a42, 0xff8080, 0xffd0d0] : [0x06101a, 0x0e2a3a, 0x18506a, 0x3a90aa, 0x8ad8e8, 0xf0fffe];
+  const cold = mood === 'calm' ? WARM : mood === 'hurt' ? [0x200810, 0x4a0e20, 0x8a1a32, 0xd42a42, 0xff8080, 0xffd0d0] : [0x06101a, 0x0e2a3a, 0x18506a, 0x3a90aa, 0x8ad8e8, 0xf0fffe];
   for (let ty = 0; ty < H; ty += TH) {
     for (let tx = 0; tx < W; tx += TW) {
       const glitch = mood === 'hurt' && hash2(tx, ty, 9) > 0.86 ? (hash2(ty, tx, 3) - 0.5) * 14 : 0;
@@ -52,6 +59,10 @@ function face(mood: 'idle' | 'speak' | 'hurt' | 'calm'): PixelCanvas {
       // a few screens are dark (broken) or show something else
       const h = hash2(tx, ty, 21);
       if (h > 0.97) continue;
+      const nx = (tx + TW / 2 - W / 2) / 96;
+      const ny = (ty + TH / 2 - 74) / 76;
+      const rim = Math.sqrt(nx * nx + ny * ny * 1.15) + (hash2(tx, ty, 33) - 0.5) * 0.12;
+      const ramp = rim >= warmFrom ? WARM : cold;
       const idx = Math.min(ramp.length - 1, Math.floor(v * ramp.length));
       for (let y = 0; y < TH - 1; y++) {
         for (let x = 0; x < TW - 1; x++) {
@@ -88,6 +99,8 @@ function eye(open: boolean, hurt: boolean): PixelCanvas {
 export function buildBoss3(): Item[] {
   const out: Item[] = [];
   for (const m of ['idle', 'speak', 'hurt', 'calm'] as const) out.push({ name: `face_${m}`, c: face(m) });
+  // finale: the warmth spreads from the rim to the centre in eight steps
+  for (let k = 0; k < 8; k++) out.push({ name: `face_warm_${k}`, c: face('idle', 1.05 - (k + 1) * (1.12 / 8)) });
   out.push({ name: 'eye_open', c: eye(true, false) });
   out.push({ name: 'eye_hurt', c: eye(true, true) });
   out.push({ name: 'eye_shut', c: eye(false, false) });

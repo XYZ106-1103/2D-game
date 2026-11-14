@@ -839,6 +839,39 @@ export class AudioEngine {
         this.tone('sine', 784, 784, t + 0.08, 0.6, 0.1 * v, verb, 0.01);
         this.tone('sine', 1047, 1047, t + 0.16, 0.8, 0.08 * v, verb, 0.01);
         break;
+      case 'bell': {
+        // an old tower bell: strike + inharmonic partials (hum, prime, tierce, quint, nominal...)
+        const f = 98 * p;
+        this.noiseBurst(t, 0.06, 0.25 * v, 'bandpass', 2600, 1200, 1.5, dest);
+        const parts: [number, number, number][] = [
+          [0.5, 0.2, 5.5],
+          [1, 0.16, 4.2],
+          [1.183, 0.1, 3.4],
+          [1.506, 0.07, 2.8],
+          [2, 0.09, 3.2],
+          [2.514, 0.05, 2],
+          [3.011, 0.04, 1.6],
+          [4.166, 0.025, 1.1],
+        ];
+        for (const [r, a, d] of parts) {
+          this.tone('sine', f * r, f * r * 0.998, t, d, a * v, dest, 0.004);
+          this.tone('sine', f * r * 1.003, f * r, t, d * 1.2, a * 0.6 * v, verb, 0.004);
+        }
+        break;
+      }
+      case 'star':
+        this.tone('sine', 880 * p, 880 * p, t, 0.7, 0.07 * v, verb, 0.004);
+        this.tone('triangle', 1760 * p, 1760 * p, t, 0.25, 0.03 * v, dest, 0.004);
+        break;
+      case 'swell':
+        this.tone('sine', 220, 660, t, 0.9, 0.08 * v, verb, 0.4);
+        this.tone('sine', 330, 990, t + 0.05, 0.9, 0.05 * v, verb, 0.4);
+        break;
+      case 'shock':
+        this.noiseBurst(t, 0.7, 0.3 * v, 'bandpass', 300, 2400, 1.2, dest, 0.02);
+        this.tone('sine', 90, 40, t, 0.6, 0.3 * v, dest, 0.005);
+        this.tone('sine', 660, 1320, t, 0.5, 0.05 * v, verb, 0.01);
+        break;
       case 'boot':
         this.tone('sine', 110, 880, t, 0.6, 0.08 * v, verb, 0.05);
         this.noiseBurst(t, 0.5, 0.06 * v, 'bandpass', 600, 4000, 3, dest, 0.2);

@@ -22,6 +22,9 @@ uniform float uDark;
 uniform vec2 uLight;
 uniform vec2 uLight2;
 uniform float uLightR;
+uniform float uRippleA;
+uniform float uRippleR;
+uniform vec2 uRippleC;
 
 varying vec2 outTexCoord;
 
@@ -43,6 +46,14 @@ vec3 bright(vec2 uv) {
 void main() {
   vec2 uv = outTexCoord;
   vec2 px = 1.0 / uResolution;
+  // ripple: a ring of displacement spreading from a point (whole-pixel offsets)
+  if (uRippleA > 0.001) {
+    vec2 asp = vec2(uResolution.x / uResolution.y, 1.0);
+    vec2 rd = (uv - uRippleC) * asp;
+    float dist = length(rd);
+    float k = exp(-pow((dist - uRippleR) / 0.045, 2.0)) * uRippleA;
+    uv -= floor(normalize(rd + 0.00001) * k * 4.0 + 0.5) * px;
+  }
   vec2 d = uv - 0.5;
   vec3 col;
   if (uAberration > 0.01) {
@@ -114,6 +125,8 @@ export class NeonPostFX extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
   light = { x: 0.5, y: 0.5 };
   light2 = { x: -1, y: -1 };
   lightR = 0.22;
+  /** Ripple ring: amplitude (0 = off), radius in screen heights, centre (uv, y down). */
+  ripple = { a: 0, r: 0, x: 0.5, y: 0.5 };
 
   constructor(game: Phaser.Game) {
     super({ game, name: 'NeonPostFX', fragShader: FRAG });
@@ -134,5 +147,8 @@ export class NeonPostFX extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
     this.set2f('uLight', this.light.x, 1 - this.light.y);
     this.set2f('uLight2', this.light2.x, 1 - this.light2.y);
     this.set1f('uLightR', this.lightR);
+    this.set1f('uRippleA', this.ripple.a);
+    this.set1f('uRippleR', this.ripple.r);
+    this.set2f('uRippleC', this.ripple.x, 1 - this.ripple.y);
   }
 }

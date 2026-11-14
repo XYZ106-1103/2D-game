@@ -6,6 +6,7 @@ import type { AnchorPoint } from '../Grapple.ts';
 import type { Plat } from '../Player.ts';
 import type { HitKind, HitResult } from '../enemies/Enemy.ts';
 import type { GameScene } from '../../scenes/GameScene.ts';
+import { audio } from '../../audio/AudioEngine.ts';
 
 const FLOOR_ROW = 21;
 const VOICES = ['잊게 해 줘', '기억하고 싶어', '그냥 평온하고 싶어', '내 기억은 내 거야', '무서워', '그 사람 얼굴을 잊고 싶지 않아', '다시 아프기 싫어', '선택하게 해 줘'];
@@ -88,6 +89,11 @@ export class Vesper {
   private readonly floorY = FLOOR_ROW * TILE;
   private readonly arenaW: number;
   onDefeated: (() => void) | null = null;
+  // finale (last lantern): real-time clock, -1 = not running
+  private fin = -1;
+  private finFrom = { x: 0, y: 0 };
+  private finPath: { x: number; y: number }[] = [];
+  private finCamFrom = 0;
   onPhase: ((p: number) => void) | null = null;
 
   constructor(g: GameScene) {
@@ -249,17 +255,255 @@ export class Vesper {
     this.g.particles.sparks(l.x, l.y, -90, 360, 18, [COLORS.amberHot, COLORS.white, COLORS.amber]);
     this.g.flash(0.15);
     const left = this.lanterns.filter((q) => !q.lit).length;
-    this.spawnVoice(left === 0 ? '선택하게 해 줘' : VOICES[(6 - left) % VOICES.length], l.x, l.y - 20, true);
-    if (left === 0) this.win();
+    if (left === 0) {
+      this.startFinale(l);
+      return;
+    }
+    this.spawnVoice(VOICES[(6 - left) % VOICES.length], l.x, l.y - 20, true);
   }
 
-  private win(): void {
-    this.defeated = true;
-    this.setState('dying');
-    this.clearHazards();
-    this.g.slowmo(0.4, 1.2);
-    this.face.setFrame('face_calm');
-    this.glow.setTint(COLORS.amberHot);
+  // ---------------------------------------------------------------------------
+  // Finale: (1) time stops on the last hook (close-up, heartbeat, a light
+  // shockwave dissolves every attack) → (2) the six lanterns join into a
+  // constellation whose light flows into the face, warming it from the rim
+  // inward → (3) silence, then the old clock tower bell rings once.
+  // ---------------------------------------------------------------------------
+
+  private startFinale(l: { x: number; y: number }): void {
+    this.defeated = true; // stops attacks and hazard updates
+    this.setState('finale');
+    this.fin = 0;
+    this.finFrom = { x: l.x, y: l.y };
+    this.finPath = this.lanterns.map((q) => ({ x: q.x, y: q.y })).sort((a, b) => a.x - b.x);
+    const p = this.g.player;
+    p.controlLocked = true;
+    p.invulnT = 99;
+    this.g.slowmo(0.02, 1.3);
+    audio.stopMusic(0.25);
+    audio.heartbeat(1.1);
+    this.g.cinematicHud(true);
+    // integer close-up: frame ION and the lantern together when they fit,
+    // otherwise keep the lantern in shot with the tether leading into it
+    const hw = GAME_W / 4;
+    const hh = GAME_H / 4;
+    const fit = (a: number, b: number, half: number) => (Math.abs(b - a) <= 2 * (half - 22) ? (a + b) / 2 : a + Math.sign(b - a) * (half - 22));
+    const wh = this.g.level.world.pixelHeight;
+    this.g.cine = {
+      x: Math.max(hw, Math.min(this.arenaW - hw, fit(l.x, p.x, hw))),
+      y: Math.max(hh, Math.min(wh - hh, fit(l.y, p.y - 6, hh))),
+      zoom: 2,
+    };
+  }
+
+  /** Camera centre (zoom 1) for the constellation: sweep along the links, then settle on the face. */
+  private finaleCamX(T: number, from: number): number {
+    const half = GAME_W / 2;
+    const left = half;
+    const right = this.arenaW - half;
+    const ease = (u: number) => u * u * (3 - 2 * u);
+    if (T < 2.3) return from + (left - from) * ease(Math.max(0, Math.min(1, (T - 1.9) / 0.4)));
+    if (T < 3.5) return left + (right - left) * ease((T - 2.3) / 1.2);
+    return right + (this.fxX - right) * ease(Math.min(1, (T - 3.5) / 0.45));
+  }
+
+  /** Amber motes where an attack dissolves. */
+  private puff(x: number, y: number, n = 8): void {
+    this.g.particles.emit(x, y, { frame: 'px2', count: n, speed: [30, 110], angle: -90, spread: 360, gravity: -40, life: [0.6, 1.2], tint: [COLORS.amberHot, 0xffd890, COLORS.white], add: true });
+  }
+
+  /** The shockwave front (radius r around the last lantern) unmakes what it touches. */
+  private dissolveWithin(r: number): void {
+    const L = this.finFrom;
+    const near = (x: number, y: number) => Math.hypot(x - L.x, y - L.y) < r;
+    this.missiles = this.missiles.filter((m) => {
+      if (!near(m.x, m.y)) return true;
+      this.puff(m.x, m.y);
+      m.img.destroy();
+      m.ret.destroy();
+      return false;
+    });
+    this.scales = this.scales.filter((sc) => {
+      if (!near(sc.x, sc.y)) return true;
+      this.puff(sc.x, sc.y, 4);
+      sc.img.destroy();
+      return false;
+    });
+    this.waves = this.waves.filter((w) => {
+      if (Math.abs(w.x - L.x) > r) return true;
+      for (let y = 40; y < this.floorY; y += 26) if (Math.abs(y - w.gapY) > 30) this.puff(w.x, y, 3);
+      return false;
+    });
+    for (const c of this.train.cars) {
+      if (c.x < -9000 || !near(c.x + c.w / 2, c.y + 14)) continue;
+      for (let k = 0; k < 4; k++) this.puff(c.x + ((k + 0.5) * c.w) / 4, c.y + 14, 4);
+      c.x = -9999;
+    }
+    if (this.train.cars.every((c) => c.x < -9000)) {
+      this.train.active = false;
+      this.g.gimmicks.devices3.extraPlats = [];
+    }
+    if (this.crane.x > -9000 && near(this.crane.x, this.crane.img.y)) {
+      this.puff(this.crane.x, this.crane.img.y, 12);
+      this.crane.x = -9999;
+      this.crane.img.setVisible(false);
+    }
+    if (this.slam.t >= 0 && near(this.slam.x, this.floorY - 70)) {
+      this.puff(this.slam.x, this.floorY - 70, 14);
+      this.slam.t = -1;
+    }
+    this.slam.shocks = this.slam.shocks.filter((k) => !near(k.x, this.floorY - 5));
+    for (const e of this.g.combat.enemies) {
+      if (!e.alive || !near(e.x, e.y) || (e.kind !== 'drone' && e.kind !== 'trooper' && e.kind !== 'watcher')) continue;
+      e.alive = false;
+      e.gone = true;
+      this.puff(e.x, e.y, 12);
+    }
+    for (const v of this.voices) if (v.vx !== 0 && near(v.t.x, v.t.y)) v.life = Math.min(v.life, 0.4);
+  }
+
+  private updateFinale(dt: number): void {
+    const prev = this.fin;
+    this.fin += dt;
+    const T = this.fin;
+    const at = (s: number) => prev < s && T >= s;
+    const p = this.g.player;
+    const post = this.g.postFX;
+    const cam = this.g.cameras.main;
+    p.invulnT = Math.max(p.invulnT, 1);
+
+    // (1) time stops: spotlight on ION and the lantern, a second heartbeat
+    if (T < 1.3 && post && this.g.cine) {
+      const c = this.g.cine;
+      const uv = (x: number, y: number) => ({ x: ((x - Math.round(c.x)) * c.zoom) / GAME_W + 0.5, y: ((y - Math.round(c.y)) * c.zoom) / GAME_H + 0.5 });
+      post.dark = Math.min(0.7, T * 4);
+      post.light = uv(this.finFrom.x, this.finFrom.y);
+      post.light2 = uv(p.x, p.y - 6);
+      post.lightR = 0.2;
+    } else if (post && post.dark > 0) post.dark = Math.max(0, post.dark - dt * 4);
+    if (at(0.75)) audio.heartbeat(1.5);
+    if (at(1.3)) {
+      this.g.cine = null;
+      p.grapple.release(true);
+      this.g.flash(0.6);
+      this.g.aberration(1.6);
+      this.g.shake(5, 0.4);
+      this.g.sfx('shock');
+      if (post) post.light2 = { x: -1, y: -1 };
+    }
+    if (T >= 1.3 && T < 3.2) this.dissolveWithin((T - 1.3) * 620);
+    if (at(3.2)) this.clearHazards();
+    this.beamOn = Math.max(0, this.beamOn - dt * 3);
+    // the camera follows the light: sweep left to right along the links, then the face
+    if (at(1.9)) this.finCamFrom = cam.scrollX + GAME_W / 2;
+    if (T >= 1.9) this.g.cine = { x: this.finaleCamX(T, this.finCamFrom), y: cam.scrollY + GAME_H / 2, zoom: 1 };
+
+    // (2) the constellation: five links, left to right
+    for (let i = 0; i < this.finPath.length - 1; i++) {
+      const s0 = 2.3 + i * 0.24;
+      if (at(s0)) this.g.sfx('star', { pitch: [1, 1.122, 1.26, 1.335, 1.498][i] ?? 1.5, vol: 0.9 });
+      if (at(s0 + 0.24)) {
+        const q = this.finPath[i + 1];
+        this.g.particles.ring(q.x, q.y, COLORS.amberHot);
+        this.g.particles.sparks(q.x, q.y, -90, 360, 8, [COLORS.amberHot, COLORS.white]);
+      }
+    }
+    if (at(3.55)) this.g.sfx('swell');
+    if (at(4.25)) {
+      this.g.flash(0.25);
+      this.g.particles.ring(this.face.x, this.face.y, COLORS.amberHot);
+      this.spawnVoice('선택하게 해 줘', this.face.x, this.face.y + 92, true);
+    }
+    if (T >= 4.25 && T < 5.05) this.face.setFrame(`face_warm_${Math.min(7, Math.floor((T - 4.25) / 0.1))}`);
+    if (T >= 4.25) {
+      const k = Math.min(1, (T - 4.25) / 0.8);
+      this.glow.setTint(COLORS.amberHot).setAlpha(Math.max(this.glow.alpha, 0.45 * k));
+    }
+
+    // (3) silence, then the bell
+    if (at(5.6)) {
+      this.g.sfx('bell', { vol: 1 });
+      this.face.setFrame('face_calm');
+      this.g.shake(2, 0.6);
+      this.g.flash(0.15);
+      if (post) {
+        post.ripple.x = (this.face.x - cam.scrollX) / GAME_W;
+        post.ripple.y = (this.face.y - cam.scrollY) / GAME_H;
+      }
+    }
+    if (post) {
+      const k = (T - 5.6) / 1.8;
+      post.ripple.a = k >= 0 && k < 1 ? 1.6 * (1 - k) : 0;
+      post.ripple.r = Math.max(0, k) * 1.3;
+    }
+    if (T > 5.9) {
+      const k = Math.min(1, (T - 5.9) / 2);
+      this.face.setAlpha(1 - k);
+      this.glow.setAlpha(0.45 * (1 - k));
+    }
+    // warm voices drift while the simulation is idle
+    for (const v of this.voices) {
+      v.life -= dt;
+      v.t.y -= 10 * dt;
+      v.t.setAlpha(Math.max(0, Math.min(1, v.life * 0.8, (2.5 - v.life) * 2)));
+    }
+    this.voices = this.voices.filter((v) => {
+      if (v.life <= 0) v.t.destroy();
+      return v.life > 0;
+    });
+    if (T >= 7.9) {
+      // the camera stays on the calm sky where the face was, through the decision
+      this.fin = -1;
+      if (post) {
+        post.dark = 0;
+        post.ripple.a = 0;
+      }
+      this.setState('dead');
+      this.onDefeated?.();
+    }
+  }
+
+  /** Constellation links and the light flowing into the face. */
+  private drawFinale(g: Phaser.GameObjects.Graphics): void {
+    const T = this.fin;
+    const p = this.g.player;
+    // the taut, glowing tether while time stands still
+    if (T < 1.3) {
+      const pulse = 0.7 + Math.sin(T * 18) * 0.3;
+      g.lineStyle(3, COLORS.amberHot, 0.35 * pulse).lineBetween(p.x, p.y - 6, this.finFrom.x, this.finFrom.y);
+      g.lineStyle(1, 0xfff0c0, pulse).lineBetween(p.x, p.y - 6, this.finFrom.x, this.finFrom.y);
+    }
+    // the shockwave front
+    if (T >= 1.3 && T < 3.2) {
+      const r = (T - 1.3) * 620;
+      const a = Math.max(0, 1 - (T - 1.3) / 1.9);
+      g.lineStyle(4, COLORS.amberHot, 0.4 * a).strokeCircle(this.finFrom.x, this.finFrom.y, Math.max(1, r - 6));
+      g.lineStyle(2, 0xffffff, 0.8 * a).strokeCircle(this.finFrom.x, this.finFrom.y, Math.max(1, r));
+    }
+    const fade = T > 6.4 ? Math.max(0, 1 - (T - 6.4) / 1.2) : 1;
+    if (fade <= 0) return;
+    // links
+    for (let i = 0; i < this.finPath.length - 1; i++) {
+      const u = Math.max(0, Math.min(1, (T - (2.3 + i * 0.24)) / 0.24));
+      if (u <= 0) continue;
+      const a = this.finPath[i];
+      const b = this.finPath[i + 1];
+      const hx = a.x + (b.x - a.x) * u;
+      const hy = a.y + (b.y - a.y) * u;
+      g.lineStyle(3, COLORS.amberHot, 0.3 * fade).lineBetween(a.x, a.y, hx, hy);
+      g.lineStyle(1, 0xfff0c0, 0.95 * fade).lineBetween(a.x, a.y, hx, hy);
+      if (u < 1) g.fillStyle(0xffffff, 1).fillRect(Math.round(hx) - 1, Math.round(hy) - 1, 3, 3);
+    }
+    // light streams into the face
+    if (T >= 3.55) {
+      const u = Math.min(1, (T - 3.55) / 0.7);
+      const e = u * u;
+      for (const q of this.finPath) {
+        const hx = q.x + (this.face.x - q.x) * e;
+        const hy = q.y + (this.face.y - q.y) * e;
+        g.lineStyle(1, 0xffd890, 0.55 * fade * (T < 4.6 ? 1 : Math.max(0, 1 - (T - 4.6) / 0.6))).lineBetween(q.x, q.y, hx, hy);
+        if (u < 1) g.fillStyle(0xffffff, 1).fillRect(Math.round(hx) - 1, Math.round(hy) - 1, 3, 3);
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -603,12 +847,13 @@ export class Vesper {
   render(_alpha: number, _dt: number): void {
     const g = this.fx;
     g.clear();
+    if (this.fin >= 0) this.updateFinale(Math.min(0.05, this.sc.game.loop.delta / 1000));
     if (this.state === 'dead') return;
     // the face drifts and glitches when hurt
     const hurt = [...this.screens, ...this.pylons, ...this.eyes].some((p) => p.flash > 0);
     for (const p of [...this.screens, ...this.pylons, ...this.eyes]) p.flash -= 1 / 60;
     this.face.setPosition(Math.round(this.fxX + Math.sin(this.t * 0.3) * 6), Math.round(this.fyC + Math.sin(this.t * 0.5) * 4));
-    if (this.state !== 'dying') this.face.setFrame(hurt ? 'face_hurt' : this.waves.length ? 'face_speak' : 'face_idle');
+    if (this.state !== 'dying' && this.state !== 'finale') this.face.setFrame(hurt ? 'face_hurt' : this.waves.length ? 'face_speak' : 'face_idle');
     this.glow.setPosition(this.face.x, this.face.y);
     for (const s of this.screens) if (s.img.visible) s.img.setPosition(Math.round(s.x), Math.round(s.y)).setFrame(s.flash > 0 ? 'screen_2' : `screen_${Math.floor(this.t * 2) % 2}`);
     for (const s of this.pylons) if (s.img.visible) s.img.setPosition(s.x, s.y + 20).setTint(s.flash > 0 ? 0xffffff : 0xffffff);
@@ -678,7 +923,7 @@ export class Vesper {
       g.fillStyle(RAMPS.cyan[5], Math.max(0, 1 - k.t / 1.6));
       g.fillRect(Math.round(k.x) - 3, this.floorY - 10, 6, 10);
     }
-    void GAME_H;
+    if (this.fin >= 0) this.drawFinale(g);
   }
 
   reset(): void {
@@ -691,6 +936,12 @@ export class Vesper {
 
   destroy(): void {
     this.clearHazards();
+    const post = this.g.postFX;
+    if (post) {
+      post.dark = 0;
+      post.ripple.a = 0;
+    }
+    this.g.cine = null;
     for (const o of [this.face, this.glow, this.fx, this.crane.img, this.slam.img]) o.destroy();
     for (const p of [...this.screens, ...this.pylons, ...this.eyes]) p.img.destroy();
     for (const l of this.lanterns) {

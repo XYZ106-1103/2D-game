@@ -75,6 +75,8 @@ export class GameScene extends Phaser.Scene implements Juice {
   private weather!: Weather;
   particles!: Particles;
   private post: NeonPostFX | null = null;
+  /** Cinematic camera override (boss finales): centre and integer zoom. */
+  cine: { x: number; y: number; zoom: number } | null = null;
   private anchors: AnchorObj[] = [];
   private checkpoints: CheckpointObj[] = [];
   private logs: LogObj[] = [];
@@ -128,6 +130,7 @@ export class GameScene extends Phaser.Scene implements Juice {
     const urlStage = new URLSearchParams(location.search).get('stage');
     this.stageIndex = Math.max(0, Math.min(STAGES.length - 1, data.stage ?? progress?.stage ?? (urlStage ? Number(urlStage) : 0)));
     this.boss = null;
+    this.cine = null;
     this.exitLocked = false;
     this.anchors = [];
     this.checkpoints = [];
@@ -459,6 +462,15 @@ export class GameScene extends Phaser.Scene implements Juice {
   aberration(amount: number): void {
     if (this.post) this.post.aberration = Math.max(this.post.aberration, amount);
   }
+  /** Boss finales: cinema bars on, boss bar away. */
+  cinematicHud(on: boolean): void {
+    this.hud?.letterbox(on);
+    if (on) this.hud?.bossBar(false);
+  }
+  /** The post-processing pass (null on the canvas renderer). */
+  get postFX(): NeonPostFX | null {
+    return this.post;
+  }
   sfx(name: string, opts?: { vol?: number; pitch?: number; pan?: number }): void {
     audio.play(name, opts);
   }
@@ -534,6 +546,10 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.stats.bestCombo = this.combat.bestCombo;
     const b = this.player.body;
     this.cam.update(real, this.player.sprite.x, this.player.sprite.y, b.vx, b.onGround && !this.player.dead, this.lookUpTarget());
+    if (this.cine) {
+      cam.setZoom(this.cine.zoom);
+      cam.centerOn(Math.round(this.cine.x), Math.round(this.cine.y));
+    } else if (cam.zoom !== 1) cam.setZoom(1);
     this.parallax.update(real, cam.scrollX, cam.scrollY);
     this.weather.update(real, cam.scrollX, cam.scrollY);
     this.particles.update(real * this.timeScale);
@@ -548,6 +564,11 @@ export class GameScene extends Phaser.Scene implements Juice {
       }
     }
     this.updateCrosshair(aim);
+    if (this.cine) {
+      this.crosshair.setVisible(false);
+      this.lockRing.setVisible(false);
+      this.hitMark.setVisible(false);
+    }
     this.checkTriggers();
     this.updateDeath(real);
     this.updatePost(real);
