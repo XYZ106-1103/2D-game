@@ -125,13 +125,14 @@ export class Vesper {
       this.screens.push(mkPart(x, y, 4, 'ch3', 'screen_0', DEPTH.objects + 2, 14));
     for (const x of [150, this.arenaW / 2, this.arenaW - 150]) this.pylons.push(mkPart(x, this.floorY - 42, 5, 'ch3', 'pylon', DEPTH.objects + 1, 12));
     for (const side of [-1, 1]) this.eyes.push(mkPart(this.fxX + side * 38, this.fyC - 78 + 58, 6, 'boss3', 'eye_shut', DEPTH.mid + 2, 16));
+    // all six sit inside the locked boss camera (world y >= 150) and clear of the face
     for (const [tx, ty] of [
       [6, 13],
       [41, 13],
-      [20, 8],
-      [28, 8],
-      [11, 4],
-      [36, 4],
+      [13, 9],
+      [34, 9],
+      [20, 17],
+      [28, 17],
     ]) {
       const x = tx * TILE + 8;
       const y = ty * TILE + 8;
@@ -619,7 +620,10 @@ export class Vesper {
     }
     for (const l of this.lanterns) {
       if (!l.img.visible) continue;
-      l.glow.setPosition(l.x, l.y).setAlpha(l.lit ? 0.6 + Math.sin(this.t * 5 + l.x) * 0.08 : 0.12 + Math.sin(this.t * 3 + l.x) * 0.06);
+      // unlit lanterns beckon: a slow warm pulse and a gentle bob so they read against the city
+      const bob = l.lit ? 0 : Math.round(Math.sin(this.t * 2.2 + l.x) * 1.5);
+      l.img.setPosition(l.x, l.y + bob);
+      l.glow.setPosition(l.x, l.y + bob).setAlpha(l.lit ? 0.6 + Math.sin(this.t * 5 + l.x) * 0.08 : 0.3 + Math.sin(this.t * 3 + l.x) * 0.12);
     }
     // searchlight from the eyes
     if (this.beamOn > 0) {

@@ -238,12 +238,17 @@ export function buildProps3(): Item[] {
         c.fillRect(3, 3, 8, 2, BR[2]);
         for (let y = 5; y < 18; y++) {
           const w = y < 8 || y > 15 ? 4 : 5;
-          for (let x = 7 - w; x < 7 + w; x++) c.set(x, y, x === 7 - w || x === 6 + w ? BR[2] : on ? (y < 11 ? 0xfff0c0 : AM[4]) : NI[2]);
+          // unlit: smoky amber glass with a waiting ember — dim, but plainly a lantern
+          for (let x = 7 - w; x < 7 + w; x++) c.set(x, y, x === 7 - w || x === 6 + w ? (on ? BR[2] : ST[5]) : on ? (y < 11 ? 0xfff0c0 : AM[4]) : y < 10 ? AM[1] : AM[2]);
         }
-        c.fillRect(3, 18, 8, 2, BR[2]);
+        c.fillRect(3, 18, 8, 2, on ? BR[2] : ST[5]);
+        c.fillRect(3, 3, 8, 1, on ? BR[2] : ST[6]);
         if (on) {
           c.set(6, 9, 0xffffff);
           c.set(7, 10, 0xffffff);
+        } else {
+          c.fillRect(6, 14, 2, 2, AM[3]);
+          c.set(6, 13, AM[4]);
         }
       }),
     );

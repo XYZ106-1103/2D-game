@@ -12,7 +12,8 @@ export function buildVesperLevel(): LevelData {
   L.catwalk(3, 9, 15);
   L.catwalk(38, 44, 15);
   L.catwalk(19, 28, 11);
-  L.anchor(12, 6).anchor(35, 6).anchor(6, 9).anchor(41, 9).anchor(24, 4);
+  // every node sits inside the locked boss camera (world y >= 136)
+  L.anchor(6, 9).anchor(41, 9).anchor(24, 8);
   L.spawn(6, 20);
   L.checkpoint(4, 20);
   L.exit(24, 20);
