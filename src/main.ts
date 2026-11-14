@@ -7,6 +7,7 @@ import { GameScene } from './scenes/GameScene.ts';
 import { HudScene } from './scenes/HudScene.ts';
 import { PauseScene } from './scenes/PauseScene.ts';
 import { EndingScene } from './scenes/EndingScene.ts';
+import { CoopScene } from './scenes/CoopScene.ts';
 
 /**
  * Integer scaling in *device* pixels: every game pixel maps to exactly N×N
@@ -38,7 +39,7 @@ const game = new Phaser.Game({
   input: { mouse: { preventDefaultWheel: true }, keyboard: { capture: [32, 37, 38, 39, 40] } },
   audio: { noAudio: true },
   fps: { target: 60, forceSetTimeOut: false },
-  scene: [BootScene, TitleScene, IntroScene, GameScene, HudScene, PauseScene, EndingScene],
+  scene: [BootScene, TitleScene, IntroScene, GameScene, HudScene, PauseScene, EndingScene, CoopScene],
 });
 
 const relayout = () => game.scale.setZoom(computeZoom());

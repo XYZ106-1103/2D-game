@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { DEPTH, GAME_H, GAME_W } from '../config.ts';
 import { COLORS } from '../art/palette.ts';
 import { audio } from '../audio/AudioEngine.ts';
+import { net } from '../net/Net.ts';
 import { Parallax } from '../world/Parallax.ts';
 import { Weather } from '../world/Weather.ts';
 import { Level } from '../world/Level.ts';
@@ -42,6 +43,9 @@ export class TitleScene extends Phaser.Scene {
   }
 
   create(): void {
+    // back at the title: any online session is over
+    if (net.status !== 'idle') net.close();
+    this.registry.set('coop', false);
     this.started = false;
     this.leaving = false;
     this.menu = null;
@@ -119,6 +123,7 @@ export class TitleScene extends Phaser.Scene {
       { label: UI_TEXT.newGame, action: () => this.go(false) },
       { label: UI_TEXT.continue, action: () => this.go(true), disabled: !progress },
       { label: UI_TEXT.stageSelect, action: () => this.openStageSelect(), disabled: unlockedStage() < 1 },
+      { label: '온라인 협동 (2인)', action: () => this.goCoop() },
       { label: UI_TEXT.controls, action: () => this.openOverlay('controls') },
       { label: UI_TEXT.options, action: () => this.openOverlay('options') },
     ]);
@@ -213,6 +218,16 @@ export class TitleScene extends Phaser.Scene {
       });
     };
     build();
+  }
+
+  /** Online co-op lobby. */
+  private goCoop(): void {
+    if (this.leaving) return;
+    this.leaving = true;
+    this.menu?.setVisible(false);
+    this.cameras.main.fadeOut(400, 5, 3, 10);
+    this.uiCam.fadeOut(400, 5, 3, 10);
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => this.scene.start('Coop'));
   }
 
   private go(cont: boolean, stage?: number): void {

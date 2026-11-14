@@ -2,6 +2,10 @@ import Phaser from 'phaser';
 import { DEPTH, GAME_H, GAME_W, HOOK, MAX_STEPS_PER_FRAME, STEP } from '../config.ts';
 import { COLORS } from '../art/palette.ts';
 import { audio } from '../audio/AudioEngine.ts';
+import { nearestActor, type Actor } from '../entities/Actor.ts';
+import { net } from '../net/Net.ts';
+import { Coop } from '../net/Coop.ts';
+import { MirrorHost } from '../net/Mirror.ts';
 import { Input } from '../core/Input.ts';
 import { clamp } from '../core/math.ts';
 import { loadProgress, markEnding, saveProgress, settings, unlockStage } from '../core/Settings.ts';
@@ -75,6 +79,15 @@ export class GameScene extends Phaser.Scene implements Juice {
   private weather!: Weather;
   particles!: Particles;
   private post: NeonPostFX | null = null;
+  /** Online co-op session (null in single player). */
+  coop: Coop | null = null;
+  private mirrorHost: MirrorHost | null = null;
+  /** Co-op: the boss waits for both players to be in the arena. */
+  private pendingBoss: 'archivist' | 'nocturne' | 'vesper' | null = null;
+  /** Online co-op: the other player's character (a networked puppet), if any. */
+  partner: Actor | null = null;
+  /** Boss wind this step (sent to the co-op partner, who feels it locally). */
+  windNow = 0;
   /** Cinematic camera override (boss finales): centre and integer zoom. */
   cine: { x: number; y: number; zoom: number } | null = null;
   private anchors: AnchorObj[] = [];
@@ -106,6 +119,7 @@ export class GameScene extends Phaser.Scene implements Juice {
   private heartT = 0;
   private musicHeat = 0;
   private exitT = 0;
+  private coopExitT = 0;
   stageIndex = 0;
   gimmicks!: Gimmicks;
   npcs!: Npcs;
@@ -131,6 +145,10 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.stageIndex = Math.max(0, Math.min(STAGES.length - 1, data.stage ?? progress?.stage ?? (urlStage ? Number(urlStage) : 0)));
     this.boss = null;
     this.cine = null;
+    this.coop = null;
+    this.mirrorHost = null;
+    this.partner = null;
+    this.pendingBoss = null;
     this.exitLocked = false;
     this.anchors = [];
     this.checkpoints = [];
@@ -185,7 +203,12 @@ export class GameScene extends Phaser.Scene implements Juice {
     }
     if (progress) for (const id of progress.logs) if (!this.stats.logs.includes(id)) this.stats.logs.push(id);
     this.player = new Player(this, world, spawn.x, spawn.y, this.particles, this);
-    this.combat = new Combat(this, world, this.player, this.particles, this, data.enemies);
+    // online co-op: the host runs (and mirrors) the world; the guest only sees it
+    const coopRole = this.registry.get('coop') && net.active ? net.role : null;
+    if (coopRole === 'host') this.mirrorHost = new MirrorHost(this);
+    const enemyDefs = coopRole === 'guest' ? [] : data.enemies;
+    this.combat = this.mirrorHost ? this.mirrorHost.run(() => new Combat(this, world, this.player, this.particles, this, enemyDefs)) : new Combat(this, world, this.player, this.particles, this, enemyDefs);
+    this.combat.actors = () => this.actors();
     this.combat.onCombo = (n) => this.hud?.combo(n);
     this.gimmicks = new Gimmicks(this, this.level, this.particles, this);
     // chapter 3 hubs: talk to people; required talks open the way on
@@ -193,10 +216,11 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.talkLock = false;
     if (data.hub) {
       this.exitLocked = data.npcs.some((n) => n.required);
-      this.npcs.onTalk = (key) => {
+      this.npcs.onTalk = (key, def) => {
         this.talkLock = true;
         this.player.controlLocked = true;
         this.hud?.dialog(key);
+        this.coop?.event({ e: 'talk', id: def.id });
       };
       this.npcs.onAllRequired = () => {
         this.exitLocked = false;
@@ -209,15 +233,23 @@ export class GameScene extends Phaser.Scene implements Juice {
       this.combat.ctx.alarm = (x, y) => dev.alarm(x, y);
       dev.onAlarm = (x, y) => {
         this.hud?.toast('ALERT', '경보 — 셔터 폐쇄');
-        const alive = this.combat.enemies.filter((e) => e.alive && e.kind === 'drone' && Math.abs(e.x - x) < 300).length;
-        for (let i = alive; i < 2; i++) {
-          const e = this.combat.spawn({ kind: 'drone', x: x + (i ? 50 : -50), y: y + 20 });
-          this.particles.ring(e.x, e.y, COLORS.crimsonHot);
-        }
+        const spawn = () => {
+          const alive = this.combat.enemies.filter((e) => e.alive && e.kind === 'drone' && Math.abs(e.x - x) < 300).length;
+          for (let i = alive; i < 2; i++) {
+            const e = this.combat.spawn({ kind: 'drone', x: x + (i ? 50 : -50), y: y + 20 });
+            this.particles.ring(e.x, e.y, COLORS.crimsonHot);
+          }
+        };
+        if (this.mirrorHost) this.mirrorHost.run(spawn);
+        else spawn();
       };
     }
     if (data.boss && this.choiceOnly) this.time.delayedCall(1200, () => this.finalChoice());
-    else if (data.boss) this.setupBoss(data.boss);
+    else if (data.boss && coopRole) {
+      // co-op: the fight starts once both players are in the arena
+      this.pendingBoss = data.boss;
+      this.exitLocked = true;
+    } else if (data.boss) this.setupBoss(data.boss);
 
     this.cam = new CameraDirector(cam, world.pixelWidth, world.pixelHeight);
     // boss arena: hold a fixed height so the boss and the floor stay framed
@@ -244,6 +276,7 @@ export class GameScene extends Phaser.Scene implements Juice {
 
     this.scene.launch('Hud');
     this.hud = this.scene.get('Hud') as HudScene;
+    if (coopRole) this.coop = new Coop(this, coopRole, this.mirrorHost);
     this.time.delayedCall(0, () => {
       if (this.hud) this.hud.manualDialog = data.hub;
     });
@@ -263,6 +296,7 @@ export class GameScene extends Phaser.Scene implements Juice {
       vesper: { key: 'vs', name: '베스퍼', sub: '천백만의 합의 · THE CONSENSUS', sfx: 'roar', wait: 13800 },
     }[kind];
     const boss = kind === 'nocturne' ? new Nocturne(this) : kind === 'vesper' ? new Vesper(this) : new Archivist(this);
+    if (this.coop) boss.scaleHp(1.5);
     this.boss = boss;
     this.exitLocked = true;
     this.combat.extraTargets = () => boss.hookTargets();
@@ -311,6 +345,10 @@ export class GameScene extends Phaser.Scene implements Juice {
         this.time.delayedCall(300, open);
         return;
       }
+      if (this.coop) {
+        this.coop.hostChoice();
+        return;
+      }
       this.hud?.letterbox(true);
       this.hud?.showChoice('합의 코어', ['열쇠로 돌려준다 — 각자 선택하게', '합의를 멈추고, 모든 기억을 영원히 고정한다'], (i) => this.endChapter3(i === 0 ? 'good' : 'bad'));
     };
@@ -333,6 +371,10 @@ export class GameScene extends Phaser.Scene implements Juice {
 
   private cleanup(): void {
     this.game.events.off(Phaser.Core.Events.BLUR, this.autoPause, this);
+    this.coop?.destroy();
+    this.coop = null;
+    this.mirrorHost?.destroy();
+    this.mirrorHost = null;
     this.controls.destroy();
     audio.intensity = 0;
     this.combat?.destroy();
@@ -419,6 +461,7 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.currentCp = i;
     saveProgress({ level: this.level.data.id, stage: this.stageIndex, checkpoint: i, logs: [...this.stats.logs] });
     if (!silent) {
+      this.coop?.event({ e: 'cp', i });
       audio.play('checkpoint');
       this.particles.ring(cp.x, cp.y - 26, COLORS.cyan);
       this.particles.sparks(cp.x, cp.y - 26, -90, 180, 14);
@@ -433,6 +476,7 @@ export class GameScene extends Phaser.Scene implements Juice {
     l.glow.setVisible(false);
     if (!this.stats.logs.includes(l.id)) this.stats.logs.push(l.id);
     if (!silent) {
+      this.coop?.event({ e: 'log', id: l.id });
       audio.play('log');
       this.particles.sparks(l.x, l.y, -90, 360, 18, [COLORS.magenta, 0xffa0d8, COLORS.white]);
       this.particles.ring(l.x, l.y, COLORS.magenta);
@@ -462,14 +506,47 @@ export class GameScene extends Phaser.Scene implements Juice {
   aberration(amount: number): void {
     if (this.post) this.post.aberration = Math.max(this.post.aberration, amount);
   }
+  /** Everyone the world can target or hurt: the player, plus the co-op partner. */
+  actors(): readonly Actor[] {
+    return this.partner ? [this.player, this.partner] : [this.player];
+  }
+
+  /** The actor a threat at (x, y) should go after: the nearest living one. */
+  focus(x: number, y: number): Actor {
+    return nearestActor(this.actors(), x, y);
+  }
+
+  /** Boss wind: shove the local player now; the partner feels it on their side. */
+  applyWind(dir: number, dt: number): void {
+    const b = this.player.body;
+    if (!this.player.dead) b.vx += dir * (b.onGround ? 520 : 820) * dt;
+    this.windNow = dir;
+  }
+
+  /** Cinematic start: both players hold still and can't be hurt. */
+  cineLock(): void {
+    this.player.controlLocked = true;
+    this.player.invulnT = 99;
+    this.coop?.event({ e: 'cineLock' });
+  }
+  /** Cinematic beat: everyone lets go of their rope. */
+  cineRelease(): void {
+    this.player.grapple.release(true);
+    this.coop?.event({ e: 'cineRelease' });
+  }
+  heartbeat(vol: number): void {
+    audio.heartbeat(vol);
+    this.coop?.event({ e: 'heart', v: vol });
+  }
+  musicStop(fade: number): void {
+    audio.stopMusic(fade);
+    this.coop?.event({ e: 'musicStop', f: fade });
+  }
+
   /** Boss finales: cinema bars on, boss bar away. */
   cinematicHud(on: boolean): void {
     this.hud?.letterbox(on);
     if (on) this.hud?.bossBar(false);
-  }
-  /** The post-processing pass (null on the canvas renderer). */
-  get postFX(): NeonPostFX | null {
-    return this.post;
   }
   sfx(name: string, opts?: { vol?: number; pitch?: number; pan?: number }): void {
     audio.play(name, opts);
@@ -482,6 +559,13 @@ export class GameScene extends Phaser.Scene implements Juice {
   openPause(): void {
     if (this.state !== 'play') return;
     this.controls.reset();
+    if (this.coop) {
+      // online the world keeps running for the partner: menu only, no freeze
+      this.player.controlLocked = true;
+      this.scene.launch('Pause');
+      this.crosshair.setVisible(false);
+      return;
+    }
     audio.pauseGame();
     this.scene.pause();
     this.scene.launch('Pause');
@@ -490,6 +574,7 @@ export class GameScene extends Phaser.Scene implements Juice {
 
   onResume(): void {
     audio.resumeGame();
+    if (this.coop && this.state === 'play') this.player.controlLocked = false;
     this.controls.reset();
     this.crosshair.setVisible(true);
   }
@@ -531,9 +616,23 @@ export class GameScene extends Phaser.Scene implements Juice {
     while (this.acc >= STEP && steps < MAX_STEPS_PER_FRAME) {
       this.gimmicks.fixedUpdate(STEP, this.player);
       this.hookTargets = (this.anchors as AnchorPoint[]).concat(this.gimmicks.anchors(), this.combat.targets());
+      if (this.coop && this.coop.partner.present) this.hookTargets.push(this.coop.partner);
       this.player.fixedUpdate(STEP, this.controls, this.hookTargets);
-      this.combat.fixedUpdate(STEP);
-      this.boss?.fixedUpdate(STEP);
+      this.windNow = 0;
+      if (this.mirrorHost) {
+        // host: world code runs with its visuals tracked for the guest
+        const mh = this.mirrorHost;
+        mh.run(() => this.combat.fixedUpdate(STEP));
+        this.coop?.hostStep();
+        if (this.boss) {
+          const boss = this.boss;
+          this.coop ? this.coop.runBoss(() => boss.fixedUpdate(STEP)) : mh.run(() => boss.fixedUpdate(STEP));
+        }
+      } else {
+        this.combat.fixedUpdate(STEP);
+        this.boss?.fixedUpdate(STEP);
+      }
+      this.coop?.syncCrates();
       this.acc -= STEP;
       steps++;
     }
@@ -541,9 +640,14 @@ export class GameScene extends Phaser.Scene implements Juice {
     const alpha = this.acc / STEP;
 
     this.player.render(real * this.timeScale, alpha, this.elapsed);
-    this.combat.render(alpha, real * this.timeScale);
+    if (this.mirrorHost) this.mirrorHost.run(() => this.combat.render(alpha, real * this.timeScale));
+    else this.combat.render(alpha, real * this.timeScale);
     this.gimmicks.render(real * this.timeScale);
-    this.boss?.render(alpha, real * this.timeScale);
+    if (this.boss) {
+      const boss = this.boss;
+      if (this.coop && this.mirrorHost) this.coop.runBoss(() => boss.render(alpha, real * this.timeScale));
+      else boss.render(alpha, real * this.timeScale);
+    }
     this.stats.kills = this.combat.kills;
     this.stats.bestCombo = this.combat.bestCombo;
     const b = this.player.body;
@@ -574,6 +678,7 @@ export class GameScene extends Phaser.Scene implements Juice {
     this.checkTriggers();
     this.updateDeath(real);
     this.updatePost(real);
+    this.coop?.frame(real);
     if (this.dev) this.devKeys();
   }
 
@@ -720,7 +825,17 @@ export class GameScene extends Phaser.Scene implements Juice {
     }
     // exit
     this.exit.sprite.setVisible(!this.exitLocked);
-    if (this.state === 'play' && !this.exitLocked && !p.dead && Math.abs(p.x - this.exit.x) < 12 && Math.abs(p.feetY - this.exit.y) < 20) this.stageClear();
+    const atExit = (a: Actor) => !a.dead && Math.abs(a.x - this.exit.x) < 12 && Math.abs(a.feetY - this.exit.y) < 20;
+    if (this.state === 'play' && !this.exitLocked && atExit(p)) {
+      if (!this.coop) this.stageClear();
+      else if (this.coop.role === 'host' && (!net.peer || (this.partner && atExit(this.partner)))) this.stageClear();
+      else if (this.coopExitT <= 0) {
+        // co-op: the stage clears when both players stand at the exit
+        this.coopExitT = 2.5;
+        this.hud?.toast('CO-OP', '출구 — 동료를 기다리는 중');
+      }
+    }
+    this.coopExitT -= dt;
     if (this.state === 'clear') {
       this.exitT += dt;
       p.sprite.setAlpha(Math.max(0, 1 - this.exitT * 1.5));
@@ -758,9 +873,11 @@ export class GameScene extends Phaser.Scene implements Juice {
         const cp = this.checkpoints[this.currentCp];
         const sp = cp ? { x: cp.x, y: cp.y } : this.level.data.spawn;
         p.respawn(sp.x, sp.y);
-        this.combat.reset();
-        this.gimmicks.reset();
-        this.boss?.reset();
+        if (!this.coop) {
+          this.combat.reset();
+          this.gimmicks.reset();
+          this.boss?.reset();
+        }
         this.cam.snap(p.x, p.feetY, p.facing);
         this.state = 'play';
         this.respawning = false;
@@ -774,6 +891,7 @@ export class GameScene extends Phaser.Scene implements Juice {
   }
 
   private stageClear(): void {
+    if (this.coop?.role === 'host') this.coop.event({ e: 'clear' });
     this.state = 'clear';
     this.player.controlLocked = true;
     this.player.grapple.release();
@@ -785,11 +903,64 @@ export class GameScene extends Phaser.Scene implements Juice {
     unlockStage(Math.min(next, STAGES.length - 1));
     if (next < STAGES.length) saveProgress({ level: '', stage: next, checkpoint: 0, logs: [...this.stats.logs] });
     else saveProgress(null);
-    this.time.delayedCall(900, () => this.hud?.showClear(this.stats, this.level.data.clearText || undefined));
+    const guestWait = this.coop?.role === 'guest' ? '방장이 다음으로 넘어가기를 기다리는 중…' : undefined;
+    this.time.delayedCall(900, () => this.hud?.showClear(this.stats, guestWait ?? (this.level.data.clearText || undefined)));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Online co-op hooks (driven by the Coop session)
+
+  /** Guest: the host cleared the stage. */
+  coopClear(): void {
+    if (this.state !== 'clear') this.stageClear();
+  }
+
+  /** Guest: follow the host into another stage. */
+  coopGoto(i: number): void {
+    this.scene.stop('Hud');
+    this.scene.restart({ stage: i, carry: this.stats.logs });
+  }
+
+  /** Both players are in: start what was waiting for them (the boss). */
+  coopStart(): void {
+    const kind = this.pendingBoss;
+    this.pendingBoss = null;
+    if (!kind) return;
+    if (this.coop?.role === 'host') {
+      const mh = this.mirrorHost;
+      if (mh) mh.run(() => this.setupBoss(kind));
+      else this.setupBoss(kind);
+    } else this.coopBossIntro(kind);
+  }
+
+  /** Guest: the boss entrance, in step with the host's (the boss itself is mirrored). */
+  coopBossIntro(kind: string): void {
+    const sfx = kind === 'nocturne' ? 'screech' : 'roar';
+    const wait = kind === 'archivist' ? 9800 : kind === 'nocturne' ? 11800 : 13800;
+    this.exitLocked = true;
+    this.player.controlLocked = true;
+    this.time.delayedCall(400, () => {
+      audio.play(sfx);
+      this.shake(4, 1.2);
+    });
+    this.time.delayedCall(wait, () => {
+      this.player.controlLocked = false;
+    });
+  }
+
+  /** Leave the online session and go back to the title. */
+  coopLeave(): void {
+    net.close();
+    this.registry.set('coop', false);
+    this.scene.stop('Hud');
+    this.scene.start('Title');
   }
 
   /** Called by the HUD when the clear panel is confirmed. */
   advanceStage(): void {
+    // co-op: the host leads; the guest moves when the host does
+    if (this.coop?.role === 'guest' && !this.coop.relaying) return;
+    if (this.coop?.role === 'host') this.coop.event({ e: 'advance' });
     const next = this.stageIndex + 1;
     const run = (this.registry.get('run') as { time: number; deaths: number; kills: number; bestCombo: number } | undefined) ?? { time: 0, deaths: 0, kills: 0, bestCombo: 0 };
     this.registry.set('run', {

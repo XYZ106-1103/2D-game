@@ -561,7 +561,7 @@ export const UI_TEXT = {
   on: '켜기',
   off: '끄기',
   toTitle: '타이틀로 돌아가기',
-  credits: 'v3.0 — CHAPTER 1·2·3: 9구역에서 시계탑까지',
+  credits: 'v3.1 — CHAPTER 1·2·3 + 온라인 협동',
   skip: '[Space] 건너뛰기',
   logPickup: '기록 획득',
   continuePrompt: '[Space] 계속',

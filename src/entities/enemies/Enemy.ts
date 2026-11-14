@@ -5,6 +5,7 @@ import { makeBody } from '../../physics/TileWorld.ts';
 import type { Particles } from '../../fx/Particles.ts';
 import type { Juice } from '../../fx/Juice.ts';
 import type { Player } from '../Player.ts';
+import type { Actor } from '../Actor.ts';
 import type { AnchorPoint } from '../Grapple.ts';
 import type { Projectiles } from '../../combat/Projectiles.ts';
 
@@ -16,6 +17,10 @@ export interface EnemyCtx {
   scene: Phaser.Scene;
   world: TileWorld;
   player: Player;
+  /** Everyone enemies can target or hurt (the player, plus the co-op partner). */
+  actors: () => readonly Actor[];
+  /** The actor an enemy at (x, y) should go after: the nearest living one. */
+  target: (x: number, y: number) => Actor;
   particles: Particles;
   juice: Juice;
   projectiles: Projectiles;
@@ -89,9 +94,14 @@ export abstract class Enemy implements AnchorPoint {
     this.t += dt;
   }
 
-  /** Line of sight + range check to the player's chest. */
+  /** The actor this enemy is going after right now. */
+  protected get foe(): Actor {
+    return this.ctx.target(this.body.x, this.body.y);
+  }
+
+  /** Line of sight + range check to the target's chest. */
   canSee(range: number, fromX = this.body.x, fromY = this.body.y): boolean {
-    const p = this.ctx.player;
+    const p = this.foe;
     if (p.dead) return false;
     const dx = p.x - fromX;
     const dy = p.y - 6 - fromY;
@@ -100,7 +110,11 @@ export abstract class Enemy implements AnchorPoint {
   }
 
   overlapsPlayer(pad = 0): boolean {
-    const p = this.ctx.player.body;
+    return this.overlapsActor(this.ctx.player, pad);
+  }
+
+  overlapsActor(a: Actor, pad = 0): boolean {
+    const p = a.body;
     const b = this.body;
     return Math.abs(p.x - b.x) < (p.w + b.w) / 2 - 2 + pad && Math.abs(p.y - b.y) < (p.h + b.h) / 2 - 2 + pad;
   }

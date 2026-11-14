@@ -72,6 +72,8 @@ interface CrumbleCell {
 /** Rusted grate blocks: shake when stood on, drop, and re-form later. */
 class Crumbles {
   private cells: CrumbleCell[] = [];
+  /** A block started crumbling under the local player (co-op tells the partner). */
+  onTrigger: ((tx: number, ty: number) => void) | null = null;
   private scene: Phaser.Scene;
   private level: Level;
   private world: TileWorld;
@@ -102,7 +104,10 @@ class Crumbles {
       if (c.state === 'solid') {
         const standing = b.onGround && Math.abs(feet - top) < 1.5 && b.x + b.w / 2 > x0 && b.x - b.w / 2 < x0 + TILE;
         // neighbours crumble together for readability
-        if (standing) this.trigger(c);
+        if (standing) {
+          this.trigger(c);
+          this.onTrigger?.(c.tx, c.ty);
+        }
       } else if (c.state === 'shaking') {
         if (c.img) {
           c.img.setPosition(x0 + 8 + (Math.floor(c.t * 40) % 2 ? 1 : -1), top + 8);
@@ -135,6 +140,12 @@ class Crumbles {
         }
       }
     }
+  }
+
+  /** Start the block at a tile crumbling (the partner stood on it). */
+  triggerAt(tx: number, ty: number): void {
+    const c = this.cells.find((q) => q.tx === tx && q.ty === ty);
+    if (c) this.trigger(c);
   }
 
   private trigger(c: CrumbleCell, depth = 0, delay = 0): void {
@@ -171,7 +182,7 @@ export class Gimmicks {
   readonly movers: MovingAnchor[] = [];
   readonly devices: Devices;
   readonly devices3: Devices3;
-  private crumbles: Crumbles;
+  readonly crumbles: Crumbles;
   private vents: VentObj[] = [];
   private particles: Particles;
   private juice: Juice;

@@ -39,7 +39,7 @@ export class Sentry extends Enemy {
 
   fixedUpdate(dt: number): void {
     this.beginStep(dt);
-    const p = this.ctx.player;
+    const p = this.foe;
     const target = Math.atan2(p.y - 6 - this.pivotY, p.x - this.body.x);
     const sees = this.canSee(230, this.body.x, this.pivotY);
     switch (this.state) {

@@ -7,6 +7,7 @@ import type { Player } from '../entities/Player.ts';
 import type { Particles } from '../fx/Particles.ts';
 import type { Juice } from '../fx/Juice.ts';
 import type { AnchorPoint } from '../entities/Grapple.ts';
+import { nearestActor, type Actor, type Attacker } from '../entities/Actor.ts';
 import { Projectiles } from './Projectiles.ts';
 import { Enemy, type EnemyCtx, type HitKind, type HitResult } from '../entities/enemies/Enemy.ts';
 import { Drone } from '../entities/enemies/Drone.ts';
@@ -40,8 +41,15 @@ export class Combat {
   bestCombo = 0;
   kills = 0;
   onCombo: ((n: number) => void) | null = null;
+  /**
+   * Hit feedback scope. 'fx' (host resolving the partner's hits): sparks only;
+   * 'juice' (guest feeling its own hits): hitstop, shake and sound only.
+   */
+  feedbackMode: 'full' | 'fx' | 'juice' = 'full';
   /** Extra hook targets (e.g. boss weak points) provided by the scene. */
   extraTargets: () => AnchorPoint[] = () => [];
+  /** Everyone enemies can target (set by the scene for co-op; defaults to the player). */
+  actors: () => readonly Actor[];
   /** Extra hittables (boss parts). */
   extraHit: ((x: number, y: number, w: number, h: number, id: number, dmg: number, kind: HitKind, dirX: number) => HitResult) | null = null;
 
@@ -52,10 +60,13 @@ export class Combat {
     this.juice = juice;
     this.projectiles = new Projectiles(scene, world, particles);
     this.laser = scene.add.graphics().setDepth(DEPTH.fx - 2);
+    this.actors = () => [player];
     this.ctx = {
       scene,
       world,
       player,
+      actors: () => this.actors(),
+      target: (x, y) => nearestActor(this.actors(), x, y),
       particles,
       juice,
       projectiles: this.projectiles,
@@ -92,24 +103,26 @@ export class Combat {
 
   fixedUpdate(dt: number): void {
     const p = this.player;
+    const actors = this.actors();
     this.comboT -= dt;
     if (this.comboT <= 0 && this.combo > 0) this.combo = 0;
     for (const e of this.enemies) {
       if (e.gone) continue;
-      if (!this.near(e, 200)) continue;
+      if (!this.nearAny(e, 200, actors)) continue;
       e.fixedUpdate(dt);
-      if (e.dangerous && !p.dead && e.overlapsPlayer()) p.hurt(1, e.x);
+      if (e.dangerous) for (const a of actors) if (!a.dead && e.overlapsActor(a)) a.hurt(1, e.x);
     }
     this.projectiles.fixedUpdate(dt);
-    // bolts vs player / enemies
+    // bolts vs players / enemies
     for (const b of this.projectiles.list) {
       if (!b.alive) continue;
       if (b.owner === 'enemy') {
-        const pb = p.body;
-        if (!p.dead && Math.abs(b.x - pb.x) < pb.w / 2 + 1 && Math.abs(b.y - pb.y) < pb.h / 2 - 1) {
-          if (p.invulnT <= 0 && !p.isDashing) {
-            p.hurt(1, b.x - b.vx);
+        for (const a of actors) {
+          const pb = a.body;
+          if (!a.dead && Math.abs(b.x - pb.x) < pb.w / 2 + 1 && Math.abs(b.y - pb.y) < pb.h / 2 - 1 && a.invulnT <= 0 && !a.isDashing) {
+            a.hurt(1, b.x - b.vx);
             this.projectiles.kill(b);
+            break;
           }
         }
       } else {
@@ -126,31 +139,48 @@ export class Combat {
     }
     // player attack hitbox
     const hb = p.attackHitbox();
-    if (hb) {
-      const deflected = this.projectiles.deflect(hb.x, hb.y, hb.w, hb.h);
-      if (deflected.length) {
-        this.juice.hitstop(0.05);
-        this.juice.sfx('deflect');
-        this.particles.impact(deflected[0].x, deflected[0].y, COLORS.cyanHot);
-      }
-      for (const e of this.enemies) {
-        if (!e.alive || e.lastHitId === hb.id) continue;
-        if (!e.overlapsRect(hb.x, hb.y, hb.w, hb.h)) continue;
-        e.lastHitId = hb.id;
-        const dirX = Math.sign(e.x - p.x) || p.facing;
-        const r = e.takeHit(1, dirX, hb.kind === 'air' ? -0.5 : 0, hb.kind, p.x, p.y);
-        this.feedback(r, e.x, e.y, dirX, hb.kind);
-        if (r !== 'none') p.onAttackLanded(r, dirX, hb.kind);
-      }
-      if (this.extraHit) {
-        const r = this.extraHit(hb.x, hb.y, hb.w, hb.h, hb.id, 1, hb.kind, p.facing);
-        if (r !== 'none') p.onAttackLanded(r, p.facing, hb.kind);
-      }
+    if (hb) this.resolveHitbox(hb, p);
+  }
+
+  /**
+   * Resolve an attack hitbox against bolts, enemies and boss parts. Used for
+   * the local player and, online, for the partner's swings sent by the guest.
+   */
+  resolveHitbox(hb: { x: number; y: number; w: number; h: number; id: number; kind: HitKind }, by: Attacker): void {
+    const deflected = this.projectiles.deflect(hb.x, hb.y, hb.w, hb.h);
+    if (deflected.length) {
+      this.juice.hitstop(0.05);
+      this.juice.sfx('deflect');
+      this.particles.impact(deflected[0].x, deflected[0].y, COLORS.cyanHot);
+    }
+    for (const e of this.enemies) {
+      if (!e.alive || e.lastHitId === hb.id) continue;
+      if (!e.overlapsRect(hb.x, hb.y, hb.w, hb.h)) continue;
+      e.lastHitId = hb.id;
+      const dirX = Math.sign(e.x - by.x) || by.facing;
+      const r = e.takeHit(1, dirX, hb.kind === 'air' ? -0.5 : 0, hb.kind, by.x, by.y);
+      this.feedback(r, e.x, e.y, dirX, hb.kind);
+      if (r !== 'none') by.onAttackLanded(r, dirX, hb.kind);
+    }
+    if (this.extraHit) {
+      const r = this.extraHit(hb.x, hb.y, hb.w, hb.h, hb.id, 1, hb.kind, by.facing);
+      if (r !== 'none') by.onAttackLanded(r, by.facing, hb.kind);
     }
   }
 
+  private nearAny(e: Enemy, margin: number, actors: readonly Actor[]): boolean {
+    if (this.near(e, margin)) return true;
+    // online the partner keeps enemies around them awake too
+    for (const a of actors) if (a !== this.player && Math.abs(e.x - a.x) < GAME_W / 2 + margin && Math.abs(e.y - a.y) < GAME_H / 2 + margin) return true;
+    return false;
+  }
+
   private zipStrike(target: AnchorPoint): void {
-    const p = this.player;
+    this.zipStrikeBy(this.player, target);
+  }
+
+  /** A zip strike landing on a target (the local player's, or the partner's online). */
+  zipStrikeBy(p: Attacker & { attackId: number }, target: AnchorPoint): void {
     const dirX = Math.sign(target.x - p.x) || p.facing;
     if (target instanceof Enemy) {
       target.lastHitId = p.attackId;
@@ -168,12 +198,24 @@ export class Combat {
   feedback(r: HitResult, x: number, y: number, dirX: number, kind: HitKind): void {
     if (r === 'none') return;
     const heavy = kind === 'zip';
+    const juice = this.feedbackMode !== 'fx';
+    const fx = this.feedbackMode !== 'juice';
     if (r === 'block') {
-      this.juice.hitstop(0.045);
-      this.juice.shake(1.5, 0.08);
-      this.juice.sfx('block');
-      this.particles.emit(x - dirX * 6, y - 4, { frames: ['block_0', 'block_1', 'block_2'], life: [0.14, 0.14], add: true, fade: false });
-      this.particles.sparks(x - dirX * 6, y - 4, dirX > 0 ? 180 : 0, 70, 8, [COLORS.white, COLORS.amberHot, COLORS.amber]);
+      if (juice) {
+        this.juice.hitstop(0.045);
+        this.juice.shake(1.5, 0.08);
+        this.juice.sfx('block');
+      }
+      if (fx) {
+        this.particles.emit(x - dirX * 6, y - 4, { frames: ['block_0', 'block_1', 'block_2'], life: [0.14, 0.14], add: true, fade: false });
+        this.particles.sparks(x - dirX * 6, y - 4, dirX > 0 ? 180 : 0, 70, 8, [COLORS.white, COLORS.amberHot, COLORS.amber]);
+      }
+      return;
+    }
+    if (!juice) {
+      if (r === 'kill') this.kills++;
+      this.particles.impact(x, y, heavy ? COLORS.white : COLORS.cyanHot);
+      this.particles.sparks(x, y, dirX > 0 ? 0 : 180, 80, heavy ? 14 : 9, [COLORS.cyan, COLORS.cyanHot, COLORS.white]);
       return;
     }
     this.combo++;
@@ -192,6 +234,7 @@ export class Combat {
       this.juice.shake(heavy ? 3.2 : 2, 0.12);
       this.juice.sfx(heavy ? 'zipstrike' : 'hit', { pitch: 0.95 + Math.min(0.4, this.combo * 0.05) });
     }
+    if (!fx) return;
     this.particles.impact(x, y, heavy ? COLORS.white : COLORS.cyanHot);
     this.particles.sparks(x, y, dirX > 0 ? 0 : 180, 80, heavy ? 14 : 9, [COLORS.cyan, COLORS.cyanHot, COLORS.white]);
     // hit streak line

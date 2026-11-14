@@ -51,7 +51,7 @@ export class Trooper extends Enemy {
   fixedUpdate(dt: number): void {
     this.beginStep(dt);
     const b = this.body;
-    const p = this.ctx.player;
+    const p = this.foe;
     const dxp = p.x - b.x;
     const dyp = p.y - b.y;
     const sees = this.canSee(170, b.x, b.y - 8) && Math.abs(dyp) < 80;

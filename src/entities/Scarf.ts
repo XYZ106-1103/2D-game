@@ -8,6 +8,8 @@ import { RAMPS } from '../art/palette.ts';
  * Rendered pixel-by-pixel (Bresenham) so it stays on the pixel grid.
  */
 export class Scarf {
+  /** Colour ramp (dark → light); ION's crimson by default. */
+  ramp: readonly number[] = RAMPS.crimson;
   private xs: number[] = [];
   private ys: number[] = [];
   private pxs: number[] = [];
@@ -81,7 +83,7 @@ export class Scarf {
     g.clear();
     g.setAlpha(alpha);
     if (!visible || alpha <= 0.01) return;
-    const C = RAMPS.crimson;
+    const C = this.ramp;
     const plotted = new Set<number>();
     const outline: [number, number][] = [];
     const px = (x: number, y: number, c: number) => {

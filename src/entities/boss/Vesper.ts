@@ -6,7 +6,7 @@ import type { AnchorPoint } from '../Grapple.ts';
 import type { Plat } from '../Player.ts';
 import type { HitKind, HitResult } from '../enemies/Enemy.ts';
 import type { GameScene } from '../../scenes/GameScene.ts';
-import { audio } from '../../audio/AudioEngine.ts';
+import type { Actor } from '../Actor.ts';
 
 const FLOOR_ROW = 21;
 const VOICES = ['잊게 해 줘', '기억하고 싶어', '그냥 평온하고 싶어', '내 기억은 내 거야', '무서워', '그 사람 얼굴을 잊고 싶지 않아', '다시 아프기 싫어', '선택하게 해 줘'];
@@ -36,7 +36,8 @@ interface Wave {
   x: number;
   dir: number;
   gapY: number;
-  hit: boolean;
+  /** Players this wall has already struck (each once). */
+  hit: Set<Actor>;
 }
 
 interface Voice {
@@ -94,6 +95,8 @@ export class Vesper {
   private finFrom = { x: 0, y: 0 };
   private finPath: { x: number; y: number }[] = [];
   private finCamFrom = 0;
+  /** Who lit the last lantern (the close-up frames them). */
+  private finBy: Actor | null = null;
   onPhase: ((p: number) => void) | null = null;
 
   constructor(g: GameScene) {
@@ -168,8 +171,14 @@ export class Vesper {
     return sum(this.screens) + sum(this.pylons) + sum(this.eyes) + this.lanterns.filter((l) => !l.lit).length * 2;
   }
   get maxHp(): number {
-    // screens 3x5, pylons 3x6, eyes 2x8, lanterns 6x2
-    return 15 + 18 + 16 + 12;
+    // screens 3x5, pylons 3x6, eyes 2x8 (x1.5 in co-op), lanterns 6x2
+    const sum = (a: Part[]) => a.reduce((s, p) => s + p.max, 0);
+    return sum(this.screens) + sum(this.pylons) + sum(this.eyes) + this.lanterns.length * 2;
+  }
+
+  /** Online co-op: tougher for two. */
+  scaleHp(k: number): void {
+    for (const p of [...this.screens, ...this.pylons, ...this.eyes]) p.hp = p.max = Math.ceil(p.max * k);
   }
 
   hookTargets(): AnchorPoint[] {
@@ -270,18 +279,18 @@ export class Vesper {
   // inward → (3) silence, then the old clock tower bell rings once.
   // ---------------------------------------------------------------------------
 
-  private startFinale(l: { x: number; y: number }): void {
+  private startFinale(l: { x: number; y: number; anchor: AnchorPoint }): void {
     this.defeated = true; // stops attacks and hazard updates
     this.setState('finale');
     this.fin = 0;
     this.finFrom = { x: l.x, y: l.y };
     this.finPath = this.lanterns.map((q) => ({ x: q.x, y: q.y })).sort((a, b) => a.x - b.x);
-    const p = this.g.player;
-    p.controlLocked = true;
-    p.invulnT = 99;
+    const p = this.lighterOf(l);
+    this.finBy = p;
+    this.g.cineLock();
     this.g.slowmo(0.02, 1.3);
-    audio.stopMusic(0.25);
-    audio.heartbeat(1.1);
+    this.g.musicStop(0.25);
+    this.g.heartbeat(1.1);
     this.g.cinematicHud(true);
     // integer close-up: frame ION and the lantern together when they fit,
     // otherwise keep the lantern in shot with the tether leading into it
@@ -367,10 +376,10 @@ export class Vesper {
     this.fin += dt;
     const T = this.fin;
     const at = (s: number) => prev < s && T >= s;
-    const p = this.g.player;
-    const post = this.g.postFX;
+    const p = this.finBy ?? this.g.player;
+    const post = this.g.postFx;
     const cam = this.g.cameras.main;
-    p.invulnT = Math.max(p.invulnT, 1);
+    this.g.player.invulnT = Math.max(this.g.player.invulnT, 1);
 
     // (1) time stops: spotlight on ION and the lantern, a second heartbeat
     if (T < 1.3 && post && this.g.cine) {
@@ -381,10 +390,10 @@ export class Vesper {
       post.light2 = uv(p.x, p.y - 6);
       post.lightR = 0.2;
     } else if (post && post.dark > 0) post.dark = Math.max(0, post.dark - dt * 4);
-    if (at(0.75)) audio.heartbeat(1.5);
+    if (at(0.75)) this.g.heartbeat(1.5);
     if (at(1.3)) {
       this.g.cine = null;
-      p.grapple.release(true);
+      this.g.cineRelease();
       this.g.flash(0.6);
       this.g.aberration(1.6);
       this.g.shake(5, 0.4);
@@ -466,7 +475,7 @@ export class Vesper {
   /** Constellation links and the light flowing into the face. */
   private drawFinale(g: Phaser.GameObjects.Graphics): void {
     const T = this.fin;
-    const p = this.g.player;
+    const p = this.finBy ?? this.g.player;
     // the taut, glowing tether while time stands still
     if (T < 1.3) {
       const pulse = 0.7 + Math.sin(T * 18) * 0.3;
@@ -513,7 +522,7 @@ export class Vesper {
     this.t += dt;
     this.stateT += dt;
     this.hurtCd -= dt;
-    const p = this.g.player;
+    const p = this.g.focus(this.fxX, this.fyC);
     if (this.state === 'intro') {
       this.face.setAlpha(Math.min(1, this.face.alpha + dt * 0.5));
       this.glow.setAlpha(Math.min(0.25, this.glow.alpha + dt * 0.12));
@@ -532,7 +541,7 @@ export class Vesper {
     if (!this.active || this.defeated) return;
 
     // lantern lighting: hooking one lights it
-    if (this.phase === 4) for (const l of this.lanterns) if (!l.lit && p.grapple.attachedTo === l.anchor) this.lightLantern(l);
+    if (this.phase === 4) for (const l of this.lanterns) if (!l.lit && this.g.actors().some((a) => a.tetheredTo() === l.anchor)) this.lightLantern(l);
 
     // cadence: phase 4 slows down as lanterns are lit
     const lit = this.lanterns.filter((l) => l.lit).length;
@@ -582,9 +591,10 @@ export class Vesper {
         if (s.hp <= 0) continue;
         s.bob += dt;
         s.y += Math.sin(s.bob * 1.4) * 8 * dt;
-        if (Math.random() < dt * 0.33 && !p.dead) {
-          const dx = p.x - s.x;
-          const dy = p.y - 6 - s.y;
+        const q = this.g.focus(s.x, s.y);
+        if (Math.random() < dt * 0.33 && !q.dead) {
+          const dx = q.x - s.x;
+          const dy = q.y - 6 - s.y;
           const dd = Math.hypot(dx, dy) || 1;
           this.g.combat.projectiles.spawn(s.x, s.y, (dx / dd) * 170, (dy / dd) * 170, 'enemy', { x: s.x, y: s.y });
         }
@@ -629,12 +639,18 @@ export class Vesper {
     this.updateHazards(dt);
   }
 
-  private hurtPlayer(fromX: number, hazard = false): void {
-    if (this.hurtCd > 0) return;
-    const p = this.g.player;
-    if (p.invulnT > 0 || p.dead) return;
-    this.hurtCd = 0.3;
-    p.hurt(1, fromX, hazard);
+  private hurtActor(a: Actor, fromX: number, hazard = false): void {
+    if (a.invulnT > 0 || a.dead) return;
+    if (a === this.g.player) {
+      if (this.hurtCd > 0) return;
+      this.hurtCd = 0.3;
+    }
+    a.hurt(1, fromX, hazard);
+  }
+
+  /** The player tethered to a lantern (whoever lit it). */
+  private lighterOf(l: { anchor: AnchorPoint }): Actor {
+    return this.g.actors().find((a) => a.tetheredTo() === l.anchor) ?? this.g.player;
   }
 
   private spawnVoice(text: string, x: number, y: number, warm: boolean): void {
@@ -674,13 +690,13 @@ export class Vesper {
     const dir = Math.random() < 0.5 ? 1 : -1;
     // the gap is always reachable: a perch height or a grapple height
     const gapY = [this.floorY - 30, 15 * TILE - 20, 11 * TILE - 20][Math.floor(rand(0, 3))];
-    this.waves.push({ x: dir > 0 ? 8 : this.arenaW - 8, dir, gapY, hit: false });
+    this.waves.push({ x: dir > 0 ? 8 : this.arenaW - 8, dir, gapY, hit: new Set() });
     this.face.setFrame('face_speak');
     this.g.sfx('pulse', { vol: 0.8, pitch: 0.6 });
   }
 
   private startSlam(): void {
-    const p = this.g.player;
+    const p = this.g.focus(this.fxX, this.floorY);
     this.slam.x = Math.max(60, Math.min(this.arenaW - 60, p.x));
     this.slam.t = 0;
     this.g.sfx('roar', { vol: 0.5, pitch: 1.2 });
@@ -696,8 +712,7 @@ export class Vesper {
   }
 
   private updateHazards(dt: number): void {
-    const p = this.g.player;
-    const pb = p.body;
+    const actors = this.g.actors();
     // missiles
     for (const m of this.missiles) {
       m.t += dt;
@@ -707,7 +722,7 @@ export class Vesper {
         if (m.y >= this.floorY - 6) {
           this.g.combat.boom(m.x, this.floorY - 8, false);
           this.g.shake(3, 0.2);
-          if (Math.abs(p.x - m.x) < 26 && p.feetY > this.floorY - 40 && !p.dead) this.hurtPlayer(m.x);
+          for (const a of actors) if (Math.abs(a.x - m.x) < 26 && a.feetY > this.floorY - 40 && !a.dead) this.hurtActor(a, m.x);
           m.t = 99;
         }
       }
@@ -738,7 +753,10 @@ export class Vesper {
           c.vx = 300;
         }
         const tail = front - 288;
-        if (!p.dead && pb.x + pb.w / 2 > tail && pb.x - pb.w / 2 < front && pb.y + pb.h / 2 > roofY + 4 && pb.y - pb.h / 2 < railY) this.hurtPlayer(front + 40, true);
+        for (const a of actors) {
+          const pb = a.body;
+          if (!a.dead && pb.x + pb.w / 2 > tail && pb.x - pb.w / 2 < front && pb.y + pb.h / 2 > roofY + 4 && pb.y - pb.h / 2 < railY) this.hurtActor(a, front + 40, true);
+        }
         if (tail > this.arenaW + 20) {
           tr.active = false;
           for (const c of tr.cars) c.x = -9999;
@@ -754,7 +772,7 @@ export class Vesper {
       cr.x += cr.dir * 230 * dt;
       const cy = this.floorY - 20 - Math.abs(Math.sin(cr.x / 90)) * 6;
       cr.img.setVisible(true).setPosition(Math.round(cr.x), Math.round(cy));
-      if (!p.dead && Math.abs(pb.x - cr.x) < 24 && Math.abs(pb.y - cy) < 22) this.hurtPlayer(cr.x - cr.dir * 30, true);
+      for (const a of actors) if (!a.dead && Math.abs(a.body.x - cr.x) < 24 && Math.abs(a.body.y - cy) < 22) this.hurtActor(a, cr.x - cr.dir * 30, true);
       if (cr.x < -80 || cr.x > this.arenaW + 80) {
         cr.x = -9999;
         cr.img.setVisible(false);
@@ -763,9 +781,11 @@ export class Vesper {
     // static walls with a gap
     for (const w of this.waves) {
       w.x += w.dir * 210 * dt;
-      if (!w.hit && !p.dead && Math.abs(pb.x - w.x) < 7 && Math.abs(pb.y - w.gapY) > 30) {
-        w.hit = true;
-        this.hurtPlayer(w.x - w.dir * 20, true);
+      for (const a of actors) {
+        if (!w.hit.has(a) && !a.dead && Math.abs(a.body.x - w.x) < 7 && Math.abs(a.body.y - w.gapY) > 30) {
+          w.hit.add(a);
+          this.hurtActor(a, w.x - w.dir * 20, true);
+        }
       }
     }
     this.waves = this.waves.filter((w) => w.x > -10 && w.x < this.arenaW + 10);
@@ -779,14 +799,14 @@ export class Vesper {
         this.g.shake(6, 0.35);
         this.g.particles.landDust(s.x, this.floorY, 1);
         s.shocks.push({ x: s.x, dir: -1, t: 0 }, { x: s.x, dir: 1, t: 0 });
-        if (Math.abs(p.x - s.x) < 22 && p.feetY > this.floorY - 40) this.hurtPlayer(s.x);
+        for (const a of actors) if (Math.abs(a.x - s.x) < 22 && a.feetY > this.floorY - 40) this.hurtActor(a, s.x);
       }
       if (s.t > 1.4) s.t = -1;
     }
     for (const k of s.shocks) {
       k.t += dt;
       k.x += k.dir * 230 * dt;
-      if (Math.abs(p.x - k.x) < 10 && p.feetY > this.floorY - 14 && !p.dead) this.hurtPlayer(k.x - k.dir * 10);
+      for (const a of actors) if (Math.abs(a.x - k.x) < 10 && a.feetY > this.floorY - 14 && !a.dead) this.hurtActor(a, k.x - k.dir * 10);
     }
     s.shocks = s.shocks.filter((k) => k.t < 1.6);
     // remembered NOCTURNE scale rain
@@ -795,9 +815,12 @@ export class Vesper {
       sc.ph += dt * 2.4;
       const x = sc.x + Math.sin(sc.ph) * 18;
       sc.img.setPosition(Math.round(x), Math.round(sc.y));
-      if (!p.dead && Math.abs(x - pb.x) < pb.w / 2 + 2 && Math.abs(sc.y - pb.y) < pb.h / 2) {
-        this.hurtPlayer(x);
-        sc.y = 9999;
+      for (const a of actors) {
+        const pb = a.body;
+        if (!a.dead && sc.y < 9000 && Math.abs(x - pb.x) < pb.w / 2 + 2 && Math.abs(sc.y - pb.y) < pb.h / 2) {
+          this.hurtActor(a, x);
+          sc.y = 9999;
+        }
       }
       if (sc.y > this.floorY) sc.y = 9999;
     }
@@ -937,7 +960,7 @@ export class Vesper {
 
   destroy(): void {
     this.clearHazards();
-    const post = this.g.postFX;
+    const post = this.g.postFx;
     if (post) {
       post.dark = 0;
       post.ripple.a = 0;

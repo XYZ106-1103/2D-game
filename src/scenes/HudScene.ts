@@ -26,6 +26,7 @@ export class HudScene extends Phaser.Scene {
   private toastBox!: Phaser.GameObjects.Container;
   private toastT = 0;
   private toastTitle!: Phaser.GameObjects.BitmapText;
+  private toastPanel!: Phaser.GameObjects.NineSlice;
   private toastSub!: Phaser.GameObjects.BitmapText;
   // log panel
   private logBox: Phaser.GameObjects.Container | null = null;
@@ -69,6 +70,8 @@ export class HudScene extends Phaser.Scene {
     for (let i = 0; i < PLAYER.hp; i++) this.hp.push(this.add.image(26 + i * 7, 10, 'ui', 'hp_full').setOrigin(0, 0));
     this.add.image(26, 21, 'ui', 'icon_log').setOrigin(0, 0);
     this.logCount = text(this, 37, 20, '0/3', 'galmuri7', COLORS.magenta);
+    // co-op: the partner's name and health under ours
+    this.partnerLbl = text(this, 8, 31, '', 'galmuri7', COLORS.cyan).setVisible(false);
     this.timer = text(this, GAME_W - 46, 6, '00:00', 'galmuri7', COLORS.uiDim);
 
     // --- dialogue box --------------------------------------------------------------
@@ -87,7 +90,8 @@ export class HudScene extends Phaser.Scene {
 
     // --- toast ----------------------------------------------------------------------
     this.toastBox = this.add.container(0, 0).setVisible(false);
-    this.toastBox.add(panel(this, GAME_W - 132, 20, 124, 30));
+    this.toastPanel = panel(this, GAME_W - 132, 20, 124, 30);
+    this.toastBox.add(this.toastPanel);
     this.toastTitle = text(this, GAME_W - 122, 24, '', 'galmuri9', COLORS.cyan);
     this.toastSub = text(this, GAME_W - 122, 36, '', 'galmuri7', COLORS.uiText);
     this.toastBox.add([this.toastTitle, this.toastSub]);
@@ -125,6 +129,18 @@ export class HudScene extends Phaser.Scene {
 
     this.input.keyboard!.on('keydown-SPACE', () => this.onConfirm());
     this.input.keyboard!.on('keydown-ENTER', () => this.onConfirm());
+  }
+
+  private partnerLbl!: Phaser.GameObjects.BitmapText;
+
+  /** Co-op partner status line (null hides it). */
+  partnerInfo(line: string | null, color: number = COLORS.cyan): void {
+    if (!this.partnerLbl) return;
+    if (line === null) {
+      this.partnerLbl.setVisible(false);
+      return;
+    }
+    this.partnerLbl.setVisible(true).setText(line).setTint(color);
   }
 
   /** True while a conversation is on screen. */
@@ -305,6 +321,12 @@ export class HudScene extends Phaser.Scene {
   toast(title: string, sub: string): void {
     this.toastTitle.setText(title);
     this.toastSub.setText(sub);
+    // the box grows to fit longer messages, anchored to the right edge
+    const w = Math.max(124, Math.ceil(Math.max(this.toastTitle.width, this.toastSub.width)) + 20);
+    const x = GAME_W - 8 - w;
+    this.toastPanel.setPosition(x, 20).setSize(w, 30);
+    this.toastTitle.x = x + 10;
+    this.toastSub.x = x + 10;
     this.toastBox.setVisible(true);
     this.toastT = 2.4;
   }

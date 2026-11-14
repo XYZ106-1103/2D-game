@@ -705,6 +705,9 @@ export class Devices {
   private bouncers: Bouncer[] = [];
   private switches: Switch[] = [];
   private bridges: Bridges;
+  /** Co-op: a switch was lit / a flood started by the local player. */
+  onSwitch: ((i: number) => void) | null = null;
+  onFlood: ((i: number) => void) | null = null;
   private rods: Rod[] = [];
   private pulses: Pulse[] = [];
   private zoneGfx: Phaser.GameObjects.Graphics;
@@ -757,7 +760,12 @@ export class Devices {
     for (const l of this.lasers) l.fixedUpdate(dt, p);
     for (const f of this.fans) f.fixedUpdate(dt, p);
     for (const c of this.crushers) c.fixedUpdate(dt, p);
-    for (const f of this.floods) f.fixedUpdate(dt, p);
+    for (let i = 0; i < this.floods.length; i++) {
+      const f = this.floods[i];
+      const was = f.rising;
+      f.fixedUpdate(dt, p);
+      if (!was && f.rising) this.onFlood?.(i);
+    }
     for (const w of this.wells) w.fixedUpdate(dt, p);
     this.phase.fixedUpdate(dt, p);
     for (const bo of this.bouncers) bo.fixedUpdate(dt, p);
@@ -765,16 +773,13 @@ export class Devices {
     for (const pu of this.pulses) pu.fixedUpdate(dt, p);
     // switches: lit by hooking (or slashing) them
     const hb = p.attackHitbox();
-    for (const s of this.switches) {
+    for (let i = 0; i < this.switches.length; i++) {
+      const s = this.switches[i];
       const hooked = p.grapple.attachedTo === s;
       const slashed = hb && Math.abs(hb.x + hb.w / 2 - s.x) < hb.w / 2 + 6 && Math.abs(hb.y + hb.h / 2 - s.y) < hb.h / 2 + 6;
       if (hooked || slashed) {
-        if (s.lit <= 0) {
-          this.bridges.set(s.d.group, true);
-          this.ctx.juice.sfx('switch', { vol: 0.8 });
-          this.ctx.fx.ring(s.x, s.y, COLORS.amberHot);
-        }
-        s.lit = s.d.duration;
+        this.lightSwitch(i);
+        this.onSwitch?.(i);
       } else if (s.lit > 0) {
         s.lit -= dt;
         if (s.lit <= 0) {
@@ -783,6 +788,24 @@ export class Devices {
         }
       }
     }
+  }
+
+  /** Light switch i (by the local player, or the partner over the network). */
+  lightSwitch(i: number): void {
+    const s = this.switches[i];
+    if (!s) return;
+    if (s.lit <= 0) {
+      this.bridges.set(s.d.group, true);
+      this.ctx.juice.sfx('switch', { vol: 0.8 });
+      this.ctx.fx.ring(s.x, s.y, COLORS.amberHot);
+    }
+    s.lit = s.d.duration;
+  }
+
+  /** The partner set off flood i. */
+  startFlood(i: number): void {
+    const f = this.floods[i];
+    if (f) f.rising = true;
   }
 
   render(dt: number): void {

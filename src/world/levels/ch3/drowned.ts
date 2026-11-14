@@ -28,7 +28,7 @@ export function buildDrowned(): LevelData {
   L.pool(45, 26, 100, 38, 260, 0);
   L.building(70, 78, 22);
   L.checkpoint(73, 21);
-  L.anchor(66, 14);
+  L.anchor(65, 16);
   L.rail(84, 86, 38);
   L.fill(88, 30, 90, 38, Mat.Concrete);
 

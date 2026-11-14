@@ -6,6 +6,7 @@ import { Cell } from '../../physics/TileWorld.ts';
 import type { AnchorPoint } from '../Grapple.ts';
 import type { HitKind, HitResult } from '../enemies/Enemy.ts';
 import type { GameScene } from '../../scenes/GameScene.ts';
+import type { Actor } from '../Actor.ts';
 
 const FLOOR_ROW = 19;
 const ARM_REACH = 78; // shoulder → claw tip
@@ -53,7 +54,7 @@ export class Archivist {
   private g: GameScene;
   private arms: Arm[] = [];
   private coreHp = 6;
-  private readonly coreMax = 6;
+  private coreMax = 6;
   private coreFlash = 0;
   private coreLastHit = -1;
   private bodySpr: Phaser.GameObjects.Image;
@@ -65,7 +66,8 @@ export class Archivist {
   private slamArm = 0;
   private slamX = 0;
   private laserAng = 0;
-  private laserHit = false;
+  /** Who the current laser sweep has already burned (each player once). */
+  private laserHit = new Set<Actor>();
   private attackIdx = 0;
   private elecT = 0;
   private elecState: 'off' | 'warn' | 'on' = 'off';
@@ -139,7 +141,13 @@ export class Archivist {
     return this.arms.reduce((s, a) => s + Math.max(0, a.hp), 0) + Math.max(0, this.coreHp);
   }
   get maxHp(): number {
-    return 3 + 4 + this.coreMax;
+    return this.arms.reduce((s, a) => s + a.max, 0) + this.coreMax;
+  }
+
+  /** Online co-op: tougher for two. */
+  scaleHp(k: number): void {
+    for (const a of this.arms) a.hp = a.max = Math.ceil(a.max * k);
+    this.coreHp = this.coreMax = Math.ceil(this.coreMax * k);
   }
 
   private shoulder(a: Arm): [number, number] {
@@ -255,7 +263,9 @@ export class Archivist {
     this.hurtCd -= dt;
     this.coreFlash -= dt;
     for (const a of this.arms) a.flash -= dt;
-    const p = this.g.player;
+    // aim at the nearest player; hazards below check everyone
+    const p = this.g.focus(this.x, this.y);
+    const actors = this.g.actors();
     const speedK = this.phase === 3 ? 1.35 : this.phase === 2 ? 1.15 : 1;
 
     switch (this.state) {
@@ -303,7 +313,7 @@ export class Archivist {
         this.moveTo(this.arenaW / 2 + (p.x < this.arenaW / 2 ? 90 : -90), 82, 1.2, dt);
         // track while charging, then freeze for the last beat (dodge window)
         if (this.stateT < 0.6) this.laserAng = Math.atan2(p.y - 4 - this.y, p.x - this.x);
-        this.laserHit = false;
+        this.laserHit.clear();
         if (Math.random() < 0.6) {
           const a = rand(0, Math.PI * 2);
           this.g.particles.emit(this.x + Math.cos(a) * 40, this.y + Math.sin(a) * 40, { frame: 'px2', speed: [140, 180], angle: (a * 180) / Math.PI + 180, spread: 4, life: [0.22, 0.25], tint: [COLORS.magenta, COLORS.white], add: true });
@@ -324,9 +334,11 @@ export class Archivist {
         const turn = 0.4 * dt * speedK;
         this.laserAng += Math.max(-turn, Math.min(turn, d));
         const [ex, ey] = this.laserEnd();
-        if (!this.laserHit && this.pointSegDist(p.x, p.y - 4, this.x, this.y, ex, ey) < 6 && p.invulnT <= 0) {
-          this.laserHit = true;
-          this.hurtPlayer(this.x);
+        for (const a of actors) {
+          if (!this.laserHit.has(a) && this.pointSegDist(a.x, a.y - 4, this.x, this.y, ex, ey) < 6 && a.invulnT <= 0) {
+            this.laserHit.add(a);
+            this.hurtActor(a, this.x);
+          }
         }
         if (Math.random() < 0.8) this.g.particles.sparks(ex, ey, -90, 160, 2, [COLORS.magenta, COLORS.white]);
         if (this.stateT > 1.7) this.setState('idle');
@@ -410,7 +422,7 @@ export class Archivist {
     for (const s of this.shocks) {
       s.t += dt;
       s.x += s.dir * 230 * dt;
-      if (Math.abs(p.x - s.x) < 11 && p.feetY > this.floorY - 14 && !p.dead) this.hurtPlayer(s.x - s.dir * 10);
+      for (const a of actors) if (Math.abs(a.x - s.x) < 11 && a.feetY > this.floorY - 14 && !a.dead) this.hurtActor(a, s.x - s.dir * 10);
     }
     this.shocks = this.shocks.filter((s) => {
       const keep = s.t < 1.5 && s.x > 8 && s.x < this.arenaW - 8;
@@ -419,7 +431,7 @@ export class Archivist {
     });
 
     // body contact
-    if (this.active && !this.defeated && !p.dead && Math.abs(p.x - this.x) < 36 && Math.abs(p.y - this.y) < 30) this.hurtPlayer(this.x);
+    if (this.active && !this.defeated) for (const a of actors) if (!a.dead && Math.abs(a.x - this.x) < 36 && Math.abs(a.y - this.y) < 30) this.hurtActor(a, this.x);
   }
 
   private nextAttack(): void {
@@ -435,7 +447,6 @@ export class Archivist {
   }
 
   private impact(x: number): void {
-    const p = this.g.player;
     this.g.shake(6, 0.35);
     this.g.sfx('slam');
     this.g.particles.landDust(x, this.floorY, 1);
@@ -444,15 +455,16 @@ export class Archivist {
       const img = (this.g as unknown as Phaser.Scene).add.image(x, this.floorY, 'boss', 'boss_shock_0').setOrigin(0.5, 1).setDepth(DEPTH.fx).setBlendMode(Phaser.BlendModes.ADD);
       this.shocks.push({ x, dir, t: 0, img });
     }
-    if (Math.abs(p.x - x) < 20 && p.feetY > this.floorY - 40) this.hurtPlayer(x);
+    for (const a of this.g.actors()) if (Math.abs(a.x - x) < 20 && a.feetY > this.floorY - 40) this.hurtActor(a, x);
   }
 
-  private hurtPlayer(fromX: number): void {
-    if (this.hurtCd > 0) return;
-    const p = this.g.player;
-    if (p.invulnT > 0 || p.dead) return;
-    this.hurtCd = 0.3;
-    p.hurt(1, fromX);
+  private hurtActor(a: Actor, fromX: number): void {
+    if (a.invulnT > 0 || a.dead) return;
+    if (a === this.g.player) {
+      if (this.hurtCd > 0) return;
+      this.hurtCd = 0.3;
+    }
+    a.hurt(1, fromX);
   }
 
   private laserEnd(): [number, number] {

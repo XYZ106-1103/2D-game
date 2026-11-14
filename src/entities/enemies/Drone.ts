@@ -28,7 +28,7 @@ export class Drone extends Enemy {
   fixedUpdate(dt: number): void {
     this.beginStep(dt);
     const b = this.body;
-    const p = this.ctx.player;
+    const p = this.foe;
     this.cooldown -= dt;
     switch (this.state) {
       case 'patrol': {

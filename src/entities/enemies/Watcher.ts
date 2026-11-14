@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { DEPTH } from '../../config.ts';
 import { COLORS, RAMPS } from '../../art/palette.ts';
 import { Enemy, type EnemyCtx, type HitKind } from './Enemy.ts';
+import type { Actor } from '../Actor.ts';
 
 /**
  * Watcher drone: patrols a lane with a searchlight pointed down. Holding the
@@ -23,7 +24,6 @@ export class Watcher extends Enemy {
   fixedUpdate(dt: number): void {
     this.beginStep(dt);
     const b = this.body;
-    const p = this.ctx.player;
     this.shotCd -= dt;
     if (this.state === 'dying') {
       b.vy += 500 * dt;
@@ -43,7 +43,8 @@ export class Watcher extends Enemy {
     this.facing = b.vx >= 0 ? 1 : -1;
     // the light leans toward the travel direction
     this.aim = 90 - this.facing * 18;
-    if (this.inLight()) {
+    const p = this.inLight();
+    if (p) {
       this.seen += dt;
       if (this.seen > 0.35) {
         if (this.ctx.alarm) this.ctx.alarm(b.x, b.y);
@@ -59,18 +60,21 @@ export class Watcher extends Enemy {
     } else this.seen = Math.max(0, this.seen - dt * 2);
   }
 
-  private inLight(): boolean {
-    const p = this.ctx.player;
-    if (p.dead) return false;
+  /** Whoever stands in the drone's light (either player online), or null. */
+  private inLight(): Actor | null {
     const b = this.body;
-    const dx = p.x - b.x;
-    const dy = p.y - 6 - b.y;
-    const d = Math.hypot(dx, dy);
-    if (d > 130 || dy < 0) return false;
-    let da = (Math.atan2(dy, dx) * 180) / Math.PI - this.aim;
-    while (da > 180) da -= 360;
-    while (da < -180) da += 360;
-    return Math.abs(da) < 16 && this.ctx.world.clear(b.x, b.y + 4, p.x, p.y - 6);
+    for (const p of this.ctx.actors()) {
+      if (p.dead) continue;
+      const dx = p.x - b.x;
+      const dy = p.y - 6 - b.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 130 || dy < 0) continue;
+      let da = (Math.atan2(dy, dx) * 180) / Math.PI - this.aim;
+      while (da > 180) da -= 360;
+      while (da < -180) da += 360;
+      if (Math.abs(da) < 16 && this.ctx.world.clear(b.x, b.y + 4, p.x, p.y - 6)) return p;
+    }
+    return null;
   }
 
   protected override onHurt(dirX: number, _dirY: number, _kind: HitKind): void {

@@ -24,7 +24,7 @@ export class Mine extends Enemy {
   fixedUpdate(dt: number): void {
     this.beginStep(dt);
     const b = this.body;
-    const p = this.ctx.player;
+    const p = this.foe;
     switch (this.state) {
       case 'patrol': {
         b.x += (this.spawnX - b.x) * Math.min(1, dt * 2);
@@ -75,9 +75,8 @@ export class Mine extends Enemy {
 
   private detonate(harmful: boolean): void {
     const b = this.body;
-    const p = this.ctx.player;
     this.ctx.boom(b.x, b.y, harmful);
-    if (harmful && !p.dead && Math.hypot(p.x - b.x, p.y - 6 - b.y) < 36) p.hurt(1, b.x);
+    if (harmful) for (const p of this.ctx.actors()) if (!p.dead && Math.hypot(p.x - b.x, p.y - 6 - b.y) < 36) p.hurt(1, b.x);
     this.alive = false;
     this.sprite.setVisible(false);
     this.glow.setVisible(false);

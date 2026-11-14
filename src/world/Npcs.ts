@@ -42,6 +42,12 @@ export class Npcs {
     return this.list.every((n) => !n.def.required || n.talked);
   }
 
+  /** The co-op partner talked to this NPC. */
+  markTalked(id: string): void {
+    const n = this.list.find((q) => q.def.id === id);
+    if (n) n.talked = true;
+  }
+
   /** Ids of everyone talked to (for saves / endings). */
   talkedIds(): string[] {
     return this.list.filter((n) => n.talked).map((n) => n.def.id);

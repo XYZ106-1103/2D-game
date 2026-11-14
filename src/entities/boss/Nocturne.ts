@@ -5,6 +5,7 @@ import { rand } from '../../core/math.ts';
 import type { AnchorPoint } from '../Grapple.ts';
 import type { HitKind, HitResult } from '../enemies/Enemy.ts';
 import type { GameScene } from '../../scenes/GameScene.ts';
+import type { Actor } from '../Actor.ts';
 
 // Geometry baked by tools/art/boss2.ts
 const WING = { w: 116, h: 176, rootX: 2, rootY: 84 };
@@ -47,7 +48,7 @@ interface Moth {
 interface Ring {
   r: number;
   gap: number;
-  hit: boolean;
+  hit: Set<Actor>;
 }
 
 /**
@@ -74,7 +75,8 @@ export class Nocturne {
   private frame = 0;
   private lenses: Lens[] = [];
   private coreHp = 12;
-  private readonly coreMax = 12;
+  private coreMax = 12;
+  private lensMax = LENS_HP;
   /** After a hit the moth folds its wings: lenses can't be hooked for a moment. */
   private guardT = 0;
   private coreLast = -1;
@@ -161,7 +163,14 @@ export class Nocturne {
     return this.lenses.reduce((s, l) => s + Math.max(0, l.hp), 0) + Math.max(0, this.coreHp);
   }
   get maxHp(): number {
-    return this.lenses.length * LENS_HP + this.coreMax;
+    return this.lenses.length * this.lensMax + this.coreMax;
+  }
+
+  /** Online co-op: tougher for two. */
+  scaleHp(k: number): void {
+    this.lensMax = Math.ceil(LENS_HP * k);
+    for (const l of this.lenses) l.hp = this.lensMax;
+    this.coreHp = this.coreMax = Math.ceil(this.coreMax * k);
   }
   /** Wing art per side: bit0 fore lens broken, bit1 hind lens broken. */
   private wingVariant(side: -1 | 1): number {
@@ -245,11 +254,10 @@ export class Nocturne {
   /** Wing snap: shove the player away and close the lenses briefly. */
   private flinch(): void {
     this.guardT = 1.1;
-    const p = this.g.player;
+    // whoever is closest just struck the lens
+    const p = this.g.focus(this.x, this.y);
     const dir = p.x >= this.x ? 1 : -1;
-    p.grapple.release();
-    p.body.vx = dir * 260;
-    p.body.vy = -200;
+    p.push(dir * 260, -200);
     this.g.sfx('wing', { vol: 0.7, pitch: 1.3 });
     this.flapT += 2;
   }
@@ -308,7 +316,7 @@ export class Nocturne {
     this.coreFlash -= dt;
     this.guardT -= dt;
     for (const l of this.lenses) l.flash -= dt;
-    const p = this.g.player;
+    const p = this.g.focus(this.x, this.y);
     const k = this.phase === 3 ? 1.3 : this.phase === 2 ? 1.15 : 1;
     const midX = this.arenaW / 2;
     this.flapRate = 8;
@@ -357,8 +365,7 @@ export class Nocturne {
         this.flapRate = 18;
         this.vx *= 0.9;
         this.vy *= 0.9;
-        const b = p.body;
-        if (!p.dead) b.vx += this.galeDir * (b.onGround ? 520 : 820) * dt;
+        this.g.applyWind(this.galeDir, dt);
         if (Math.random() < 0.7) {
           const y = this.g.cameras.main.scrollY + rand(20, GAME_H - 20);
           this.g.particles.emit(this.x + this.galeDir * 40, y, { frame: 'speedline', speed: [380, 460], angle: this.galeDir > 0 ? 0 : 180, spread: 3, life: [0.5, 0.6], tint: RAMPS.dawn[8], alpha: 0.5, align: true });
@@ -472,7 +479,7 @@ export class Nocturne {
     this.updateProjectiles(dt);
 
     // body contact
-    if (this.active && !this.defeated && !p.dead && Math.abs(p.x - this.x) < 20 && Math.abs(p.y - this.y) < 46) this.hurtPlayer(this.x);
+    if (this.active && !this.defeated) for (const a of this.g.actors()) if (!a.dead && Math.abs(a.x - this.x) < 20 && Math.abs(a.y - this.y) < 46) this.hurtActor(a, this.x);
   }
 
   private nextAttack(): void {
@@ -502,7 +509,7 @@ export class Nocturne {
   }
 
   private emitRing(): void {
-    this.rings.push({ r: 10, gap: rand(0, Math.PI * 2), hit: false });
+    this.rings.push({ r: 10, gap: rand(0, Math.PI * 2), hit: new Set() });
     this.g.sfx('pulse', { vol: 0.8, pitch: 0.7 });
     this.g.shake(2.5, 0.2);
   }
@@ -514,22 +521,25 @@ export class Nocturne {
   }
 
   private updateProjectiles(dt: number): void {
-    const p = this.g.player;
-    const pb = p.body;
-    const hb = p.attackHitbox();
+    const actors = this.g.actors();
+    const hbs = actors.map((a) => a.attackHitbox()).filter((h) => !!h);
     for (const s of this.scales) {
       s.y += s.vy * dt;
       s.ph += dt * 2.4;
       const x = s.x + Math.sin(s.ph) * s.amp;
       s.img.setPosition(Math.round(x), Math.round(s.y)).setFrame(`noc_scale_${Math.floor(this.t * 8) % 2}`);
-      if (hb && x > hb.x - 3 && x < hb.x + hb.w + 3 && s.y > hb.y - 3 && s.y < hb.y + hb.h + 3) {
+      if (hbs.some((hb) => x > hb.x - 3 && x < hb.x + hb.w + 3 && s.y > hb.y - 3 && s.y < hb.y + hb.h + 3)) {
         this.g.particles.sparks(x, s.y, -90, 180, 4, [RAMPS.dawn[8], COLORS.white]);
         s.y = 9999;
         continue;
       }
-      if (!p.dead && Math.abs(x - pb.x) < pb.w / 2 + 2 && Math.abs(s.y - pb.y) < pb.h / 2) {
-        this.hurtPlayer(x);
-        s.y = 9999;
+      for (const a of actors) {
+        const pb = a.body;
+        if (!a.dead && Math.abs(x - pb.x) < pb.w / 2 + 2 && Math.abs(s.y - pb.y) < pb.h / 2) {
+          this.hurtActor(a, x);
+          s.y = 9999;
+          break;
+        }
       }
       if (s.y > this.floorY) {
         if (s.y < 9000) this.g.particles.sparks(x, this.floorY - 1, -90, 120, 2, [RAMPS.dawn[7]]);
@@ -543,6 +553,7 @@ export class Nocturne {
     for (const m of this.moths) {
       if (!m.alive) continue;
       m.t += dt;
+      const p = this.g.focus(m.x, m.y);
       const dx = p.x - m.x;
       const dy = p.y - 6 - m.y;
       const d = Math.hypot(dx, dy) || 1;
@@ -557,10 +568,12 @@ export class Nocturne {
       m.x += m.vx * dt;
       m.y += m.vy * dt;
       m.img.setPosition(Math.round(m.x), Math.round(m.y)).setFrame(`noc_moth_${Math.floor(m.t * 14) % 2}`).setFlipX(m.vx < 0);
-      if (!p.dead && Math.abs(m.x - pb.x) < 8 && Math.abs(m.y - pb.y) < 14) {
-        this.hurtPlayer(m.x);
-        m.alive = false;
-        m.img.setVisible(false);
+      for (const a of actors) {
+        if (!a.dead && m.alive && Math.abs(m.x - a.body.x) < 8 && Math.abs(m.y - a.body.y) < 14) {
+          this.hurtActor(a, m.x);
+          m.alive = false;
+          m.img.setVisible(false);
+        }
       }
       if (m.t > 6) {
         m.alive = false;
@@ -576,16 +589,18 @@ export class Nocturne {
       r.r += 150 * dt;
       const cx = this.x;
       const cy = this.y + 24;
-      const dx = pb.x - cx;
-      const dy = pb.y - cy;
-      const dist = Math.hypot(dx, dy);
-      if (!r.hit && !p.dead && Math.abs(dist - r.r) < 7) {
-        let da = Math.atan2(dy, dx) - r.gap;
-        while (da > Math.PI) da -= Math.PI * 2;
-        while (da < -Math.PI) da += Math.PI * 2;
-        if (Math.abs(da) > 0.42) {
-          r.hit = true;
-          this.hurtPlayer(cx);
+      for (const a of actors) {
+        const dx = a.body.x - cx;
+        const dy = a.body.y - cy;
+        const dist = Math.hypot(dx, dy);
+        if (!r.hit.has(a) && !a.dead && Math.abs(dist - r.r) < 7) {
+          let da = Math.atan2(dy, dx) - r.gap;
+          while (da > Math.PI) da -= Math.PI * 2;
+          while (da < -Math.PI) da += Math.PI * 2;
+          if (Math.abs(da) > 0.42) {
+            r.hit.add(a);
+            this.hurtActor(a, cx);
+          }
         }
       }
     }
@@ -607,12 +622,13 @@ export class Nocturne {
     post.light2.y = -2;
   }
 
-  private hurtPlayer(fromX: number): void {
-    if (this.hurtCd > 0) return;
-    const p = this.g.player;
-    if (p.invulnT > 0 || p.dead) return;
-    this.hurtCd = 0.3;
-    p.hurt(1, fromX);
+  private hurtActor(a: Actor, fromX: number): void {
+    if (a.invulnT > 0 || a.dead) return;
+    if (a === this.g.player) {
+      if (this.hurtCd > 0) return;
+      this.hurtCd = 0.3;
+    }
+    a.hurt(1, fromX);
   }
 
   // ---------------------------------------------------------------------------
@@ -688,7 +704,7 @@ export class Nocturne {
     this.dark = 0;
     if (this.g.postFx) this.g.postFx.dark = 0;
     for (const l of this.lenses) {
-      l.hp = LENS_HP;
+      l.hp = this.lensMax;
       l.img.setVisible(true);
       l.glow.setVisible(true);
     }

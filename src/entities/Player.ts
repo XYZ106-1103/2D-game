@@ -7,7 +7,7 @@ import { Grapple, type AnchorPoint } from './Grapple.ts';
 import { Scarf } from './Scarf.ts';
 import type { Particles } from '../fx/Particles.ts';
 import type { Juice } from '../fx/Juice.ts';
-import { COLORS } from '../art/palette.ts';
+import { COLORS, RAMPS } from '../art/palette.ts';
 import type { HitKind, HitResult } from './enemies/Enemy.ts';
 
 export interface PlayerSheet {
@@ -240,6 +240,7 @@ export class Player {
     this.prevY = this.body.y;
     this.hp = PLAYER.hp;
     this.dead = false;
+    this.downed = false;
     this.fellOut = false;
     this.deadT = 0;
     this.hurtT = 0;
@@ -265,6 +266,22 @@ export class Player {
     this.prevX = b.x;
     this.prevY = b.y;
 
+    if (this.downed) {
+      this.downT -= dt;
+      b.vy = Math.min(b.vy + PLAYER.gravity * dt, PLAYER.maxFall);
+      b.vx = approach(b.vx, 0, 600 * dt);
+      this.world.moveX(b, b.vx * dt);
+      b.onGround = false;
+      this.world.moveY(b, b.vy * dt);
+      if (b.y > this.world.pixelHeight + 60) this.downT = 0;
+      if (this.downT <= 0) {
+        this.downed = false;
+        this.forceDie = true;
+        this.die(false);
+        this.forceDie = false;
+      }
+      return;
+    }
     if (this.dead) {
       this.deadT += dt;
       b.vy = Math.min(b.vy + PLAYER.gravity * dt, PLAYER.maxFall);
@@ -852,8 +869,48 @@ export class Player {
     this.juice.sfx('slash', { pitch: kind === 'attack2' ? 1.15 : kind === 'airattack' ? 0.9 : 1 });
   }
 
+  /** Online co-op: a lethal hit leaves you downed (a partner can revive you) instead of dead. */
+  coopDown = false;
+  downed = false;
+  /** Seconds left before a downed player gives out. */
+  downT = 0;
+  private forceDie = false;
+
+  /** Back on your feet (revived by the partner). */
+  revive(): void {
+    if (!this.downed) return;
+    this.downed = false;
+    this.hp = 2;
+    this.invulnT = 2;
+    this.setAnim('idle', true);
+    this.fx.ring(this.body.x, this.body.y, COLORS.cyanHot);
+    this.fx.sparks(this.body.x, this.body.y, -90, 360, 14);
+    this.juice.sfx('checkpoint', { vol: 0.7, pitch: 1.2 });
+  }
+
+  /** Which body is rendered: ION ('player') or MOTH's hologram ('moth', co-op guest). */
+  skin: 'player' | 'moth' = 'player';
+  setSkin(key: 'player' | 'moth'): void {
+    this.skin = key;
+    this.sprite.setTexture(key, this.frame);
+    for (const g of this.ghosts) g.img.setTexture(key, this.frame);
+    this.scarf.ramp = key === 'moth' ? RAMPS.violet : RAMPS.crimson;
+  }
+
+  /** The anchor the rope is attached to, if any. */
+  tetheredTo(): unknown {
+    return this.grapple.attached ? this.grapple.attachedTo : null;
+  }
+
+  /** Shoved by a boss: cut the rope and fly. */
+  push(vx: number, vy: number): void {
+    this.grapple.release();
+    this.body.vx = vx;
+    this.body.vy = vy;
+  }
+
   hurt(dmg: number, fromX: number, hazard = false): void {
-    if (this.invulnT > 0 || this.dead) return;
+    if (this.invulnT > 0 || this.dead || this.downed) return;
     // dash i-frames against enemies (not against the environment)
     if (!hazard && (this.dashT > 0 || this.grapple.state === 'zip')) return;
     const b = this.body;
@@ -876,7 +933,19 @@ export class Player {
   }
 
   die(fell: boolean): void {
-    if (this.dead) return;
+    if (this.dead || this.downed) return;
+    if (this.coopDown && !fell && !this.forceDie) {
+      // co-op: down, not out — the partner has a few seconds to reach you
+      this.downed = true;
+      this.downT = 10;
+      this.hp = 0;
+      this.grapple.release();
+      this.dashT = 0;
+      this.juice.sfx('death', { vol: 0.7 });
+      this.juice.shake(4, 0.25);
+      this.setAnim('death', true);
+      return;
+    }
     this.dead = true;
     this.fellOut = fell;
     this.deadT = 0;
@@ -905,7 +974,7 @@ export class Player {
 
   private pickAnim(): void {
     const b = this.body;
-    if (this.dead) return this.setAnim('death');
+    if (this.dead || this.downed) return this.setAnim('death');
     if (this.hurtT > 0) return this.setAnim('hit');
     if (this.dashT > 0 || this.grapple.state === 'zip') return this.setAnim(`dash_${this.dashIdx}`);
     if (this.attackT > 0 && this.attackKind) return this.setAnim(this.attackKind);
