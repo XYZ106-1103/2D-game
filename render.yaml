@@ -1,0 +1,13 @@
+# Render Blueprint for the online co-op relay (server/).
+# Render dashboard → New → Blueprint → pick this repository → Apply.
+services:
+  - type: web
+    name: tetherfall-coop
+    runtime: node
+    rootDir: server
+    region: singapore
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    autoDeploy: true
