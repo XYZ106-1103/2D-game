@@ -482,12 +482,14 @@ export class GameScene extends Phaser.Scene implements Juice {
   openPause(): void {
     if (this.state !== 'play') return;
     this.controls.reset();
+    audio.pauseGame();
     this.scene.pause();
     this.scene.launch('Pause');
     this.crosshair.setVisible(false);
   }
 
   onResume(): void {
+    audio.resumeGame();
     this.controls.reset();
     this.crosshair.setVisible(true);
   }

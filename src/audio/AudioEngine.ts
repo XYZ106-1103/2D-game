@@ -413,6 +413,14 @@ export class AudioEngine {
   private sfxBus!: GainNode;
   private musicBus!: GainNode;
   private ambBus!: GainNode;
+  /** Everything the game world makes (music, effects, ambience, reverb) — muted while paused. */
+  private gameBus!: GainNode;
+  /** Menu blips: stay audible while the game is paused. */
+  private uiBus!: GainNode;
+  private gamePaused = false;
+  private pausedAt = 0;
+  private musicHeld = false;
+  private heldPos = 0;
   private reverb!: ConvolverNode;
   private reverbSend!: GainNode;
   private delay!: DelayNode;
@@ -456,18 +464,22 @@ export class AudioEngine {
     comp.release.value = 0.18;
     this.out = ctx.createGain();
     this.out.connect(comp).connect(ctx.destination);
+    this.gameBus = ctx.createGain();
+    this.gameBus.connect(this.out);
+    this.uiBus = ctx.createGain();
+    this.uiBus.connect(this.out);
     this.sfxBus = ctx.createGain();
     this.musicBus = ctx.createGain();
     this.ambBus = ctx.createGain();
-    this.sfxBus.connect(this.out);
-    this.musicBus.connect(this.out);
-    this.ambBus.connect(this.out);
+    this.sfxBus.connect(this.gameBus);
+    this.musicBus.connect(this.gameBus);
+    this.ambBus.connect(this.gameBus);
     // reverb
     this.reverb = ctx.createConvolver();
     this.reverb.buffer = this.impulse(2.6, 2.2);
     this.reverbSend = ctx.createGain();
     this.reverbSend.gain.value = 0.9;
-    this.reverbSend.connect(this.reverb).connect(this.out);
+    this.reverbSend.connect(this.reverb).connect(this.gameBus);
     // tempo delay for arps
     this.delay = ctx.createDelay(1.5);
     this.delayFb = ctx.createGain();
@@ -501,6 +513,7 @@ export class AudioEngine {
     const t = this.ctx.currentTime;
     this.out.gain.setTargetAtTime(this.volumes.master, t, 0.05);
     this.sfxBus.gain.setTargetAtTime(this.volumes.sfx, t, 0.05);
+    this.uiBus.gain.setTargetAtTime(this.volumes.sfx, t, 0.05);
     this.musicBus.gain.setTargetAtTime(this.volumes.music * 0.7, t, 0.05);
     this.ambBus.gain.setTargetAtTime(this.volumes.sfx * 0.55, t, 0.05);
   }
@@ -580,13 +593,14 @@ export class AudioEngine {
     this.lastPlay.set(name, now);
     const v = opts.vol ?? 1;
     const p = opts.pitch ?? 1;
+    const ui = name.startsWith('ui_');
     const pan = ctx.createStereoPanner();
     pan.pan.value = opts.pan ?? 0;
-    pan.connect(this.sfxBus);
+    pan.connect(ui ? this.uiBus : this.sfxBus);
     const dest = pan;
     const verb = ctx.createGain();
     verb.gain.value = 0.25;
-    verb.connect(this.reverbSend);
+    verb.connect(ui ? this.uiBus : this.reverbSend);
     const t = now + 0.002;
     switch (name) {
       case 'fire':
@@ -939,9 +953,55 @@ export class AudioEngine {
     this.musicTimer = window.setInterval(() => this.schedule(), 25);
   }
 
+  /**
+   * Pause: silence the game world at once and hold the music where it is.
+   * Menu sounds keep playing.
+   */
+  pauseGame(): void {
+    if (!this.ctx || this.gamePaused) return;
+    this.gamePaused = true;
+    const now = this.ctx.currentTime;
+    this.pausedAt = now;
+    this.gameBus.gain.cancelScheduledValues(now);
+    this.gameBus.gain.setTargetAtTime(0, now, 0.012);
+    if (this.musicTimer !== null && this.track) {
+      window.clearInterval(this.musicTimer);
+      this.musicTimer = null;
+      this.musicHeld = true;
+      // steps already queued ahead of the pause never got heard: rewind to them
+      const s16 = 60 / this.track.bpm / 4;
+      const ahead = Math.max(0, Math.round((this.nextTime - now) / s16));
+      this.step = Math.max(0, this.step - ahead);
+      this.heldPos = this.step % 16;
+    }
+  }
+
+  /** Unpause: bring the world back and carry on the music from the held step. */
+  resumeGame(): void {
+    if (!this.ctx || !this.gamePaused) return;
+    this.gamePaused = false;
+    const now = this.ctx.currentTime;
+    this.gameBus.gain.cancelScheduledValues(now);
+    this.gameBus.gain.setTargetAtTime(1, now, 0.03);
+    const tr = this.track;
+    if (this.musicHeld && tr && this.musicGain) {
+      this.musicHeld = false;
+      const s16 = 60 / tr.bpm / 4;
+      this.nextTime = now + 0.05;
+      // the bar's pad ran out during a long pause: let it sound for the rest of the bar
+      const pos = this.step % 16;
+      if (pos !== 0 && now - this.pausedAt > (16 - this.heldPos) * s16) {
+        const chord = tr.chords[Math.floor(this.step / 16) % tr.chords.length];
+        for (const n of chord) for (const det of [-9, 9]) this.padVoice(NOTE(n), this.nextTime, s16 * (16 - pos), det, this.musicGain, tr.padVol);
+      }
+      this.musicTimer = window.setInterval(() => this.schedule(), 25);
+    }
+  }
+
   stopMusic(fade = 1): void {
     if (this.musicTimer !== null) window.clearInterval(this.musicTimer);
     this.musicTimer = null;
+    this.musicHeld = false;
     this.trackName = '';
     if (this.musicGain && this.ctx) {
       const g = this.musicGain;

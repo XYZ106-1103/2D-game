@@ -70,7 +70,8 @@ export class PauseScene extends Phaser.Scene {
   }
 
   private toTitle(): void {
-    audio.stopMusic(0.6);
+    audio.stopMusic(0);
+    audio.resumeGame();
     this.scene.stop('Hud');
     this.scene.stop('Game');
     this.scene.start('Title');
