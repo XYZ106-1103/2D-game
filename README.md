@@ -115,7 +115,7 @@ npm test           # 로프 감김/레이캐스트 결정론 테스트
 `server/` 는 두 사람을 방으로 묶고 메시지를 중계하는 작은 Node WebSocket 서버입니다(게임 로직 없음).
 
 1. Render 대시보드 → **New → Blueprint** → 이 저장소 → Apply (`render.yaml`: `server/`, 싱가포르, 무료 요금제).
-2. 생성된 주소를 게임에 알려 줍니다: 빌드할 때 `VITE_COOP_SERVER=https://<서비스>.onrender.com npm run build`, 또는 게임의 협동 화면 → **서버 주소 설정**(브라우저에 저장).
+2. 기본 서버는 `https://tetherfall-coop.onrender.com` 입니다. 다른 서버를 쓰려면 빌드할 때 `VITE_COOP_SERVER=https://<서비스>.onrender.com npm run build`, 또는 게임의 협동 화면 → **서버 주소 설정**(브라우저에 저장).
 3. 무료 요금제는 15분 동안 접속이 없으면 잠듭니다 — 첫 접속은 깨우는 데 최대 1분이 걸리며, 화면에 표시됩니다.
 
 ```bash

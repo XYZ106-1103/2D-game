@@ -6,8 +6,10 @@ export type NetMsg = { t: string; [k: string]: unknown };
 type Handler = (m: NetMsg) => void;
 
 const STORE = 'tetherfall.coopServer.v1';
+/** The project's relay on Render (server/, render.yaml). */
+const DEFAULT_SERVER = 'https://tetherfall-coop.onrender.com';
 
-/** Relay address: ?coop=… in the URL, a saved override, or the build default. */
+/** Relay address: ?coop=… in the URL, a saved override, the build setting, or the project relay. */
 export function coopServerUrl(): string {
   const param = new URLSearchParams(location.search).get('coop');
   if (param) return param;
@@ -17,7 +19,7 @@ export function coopServerUrl(): string {
   } catch {
     /* storage unavailable */
   }
-  return (import.meta.env.VITE_COOP_SERVER as string | undefined) ?? '';
+  return (import.meta.env.VITE_COOP_SERVER as string | undefined) || DEFAULT_SERVER;
 }
 
 export function saveCoopServerUrl(url: string): void {
