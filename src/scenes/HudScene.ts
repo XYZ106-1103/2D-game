@@ -73,6 +73,8 @@ export class HudScene extends Phaser.Scene {
     // co-op: the partners' names and health under ours (up to two)
     this.partnerLbls = [0, 1].map((i) => text(this, 8, 31 + i * 9, '', 'galmuri7', COLORS.cyan).setVisible(false));
     this.timer = text(this, GAME_W - 46, 6, '00:00', 'galmuri7', COLORS.uiDim);
+    // co-op: connection readout left of the timer
+    this.netLbl = text(this, 0, 6, '', 'galmuri7', COLORS.uiDim).setVisible(false);
 
     // --- dialogue box --------------------------------------------------------------
     // tall enough for two wrapped lines (most long lines wrap once)
@@ -132,6 +134,19 @@ export class HudScene extends Phaser.Scene {
   }
 
   private partnerLbls: Phaser.GameObjects.BitmapText[] = [];
+  private netLbl: Phaser.GameObjects.BitmapText | null = null;
+
+  /** Co-op connection readout (null hides it). */
+  netInfo(line: string | null, color: number = COLORS.uiDim): void {
+    const l = this.netLbl;
+    if (!l) return;
+    if (line === null) {
+      l.setVisible(false);
+      return;
+    }
+    l.setVisible(true).setText(line).setTint(color);
+    l.x = GAME_W - 52 - l.width;
+  }
 
   /** Co-op partner status lines, one per partner (an empty list hides them). */
   partnerInfo(lines: [string, number][]): void {

@@ -80,7 +80,9 @@ wss.on('connection', (ws) => {
   ws.on('message', (data, isBinary) => {
     ws.alive = true;
     let msg = null;
-    if (!isBinary) {
+    // control and targeted messages are small; big ones (world snapshots) are
+    // only ever broadcast, so they pass through without being parsed
+    if (!isBinary && data.length <= 2048) {
       try {
         msg = JSON.parse(data.toString());
       } catch {

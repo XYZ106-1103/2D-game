@@ -26,6 +26,8 @@ const r1 = (v: number) => Math.round(v * 10) / 10;
 type Env = { w: number; dk: number; xl: boolean; bh: number; cine: number[] | null; pst: number[] | null };
 const STATE_HZ = 30;
 const SNAP_HZ = 20;
+/** Don't queue more while this much is still waiting on the socket (slow uplink). */
+const BACKLOG = 48 * 1024;
 /** Each guest's attack ids live in their own range so they never collide. */
 const GUEST_ID = 1_000_000;
 /** Who plays which body: slot 0 hosts as ION, guests are MOTH and RU. */
@@ -140,6 +142,8 @@ export class Coop {
   private raiseAlarm: (x: number, y: number) => void = () => undefined;
   /** Destroyed: a session from an earlier stage must never send anything. */
   private dead = false;
+  /** Guest: arrival times of recent world snapshots (for the connection readout). */
+  private snapTimes: number[] = [];
 
   constructor(scene: GameScene, role: Role, mirror: MirrorHost | null) {
     this.scene = scene;
@@ -403,16 +407,18 @@ export class Coop {
       if (this.role === 'host' && this.hostWaiting) this.reply({ e: 'stage', i: g.stageIndex });
       if (this.role === 'guest' && !this.started) this.reply({ e: 'ready', to: 0, i: g.stageIndex });
     }
-    // own state out
+    // own state out (a steady rate whatever the frame rate; skipped while the
+    // socket is backed up, since every state supersedes the last)
     this.stateT -= real;
     if (this.stateT <= 0) {
-      this.stateT = 1 / STATE_HZ;
-      net.send({ t: 'ps', ...this.ownState() } as unknown as NetMsg);
+      this.stateT = Math.max(0, this.stateT + 1 / STATE_HZ);
+      if (net.buffered < BACKLOG * 2) net.send({ t: 'ps', ...this.ownState() } as unknown as NetMsg);
     }
     if (this.role === 'host') {
       this.snapT -= real;
-      if (this.snapT <= 0 && net.peer) {
-        this.snapT = 1 / SNAP_HZ;
+      // a skipped snapshot loses nothing: the next one carries every change since
+      if (this.snapT <= 0 && net.peer && net.buffered < BACKLOG) {
+        this.snapT = Math.max(0, this.snapT + 1 / SNAP_HZ);
         this.sendSnapshot();
       }
     } else this.guestFrame(real, now);
@@ -482,6 +488,12 @@ export class Coop {
         else lines.push([`${name}  HP ${pt.hp}`, COLORS.cyan]);
       }
       g.hud.partnerInfo(lines);
+      // connection readout: round trip to the relay, and (guests) world updates per second
+      const ping = net.rtt > 0 ? `PING ${Math.round(net.rtt)}` : 'PING -';
+      if (this.role === 'guest') {
+        this.snapTimes = this.snapTimes.filter((t) => now - t < 2000);
+        g.hud.netInfo(`${ping} · ${Math.round(this.snapTimes.length / 2)}/s`, net.rtt > 250 || this.snapTimes.length < 16 ? COLORS.amberHot : COLORS.uiDim);
+      } else g.hud.netInfo(ping, net.rtt > 250 ? COLORS.amberHot : COLORS.uiDim);
     }
   }
 
@@ -579,6 +591,7 @@ export class Coop {
   private onSnapshot(msg: NetMsg): void {
     if (this.role !== 'guest' || !this.guest) return;
     const now = performance.now();
+    this.snapTimes.push(now);
     const m = msg as unknown as { m: MirrorPacket; an: number[][]; pl: number[][]; env: Env; fx: [number, number, object][]; sf: [string, object | undefined][]; sh: [number, number][]; fl: number[] };
     this.guest.apply(m.m, now);
     // anchors
@@ -631,8 +644,9 @@ export class Coop {
   private guestFrame(real: number, now: number): void {
     const g = this.g;
     this.guest?.update(now);
+    const ease = this.guest?.easeMs ?? 50;
     for (const a of this.remote.values()) {
-      const k = Math.min(1, (now - a.t0) / 50);
+      const k = Math.min(1, (now - a.t0) / ease);
       a.x = a.fx + (a.tx - a.fx) * k;
       a.y = a.fy + (a.ty - a.fy) * k;
     }
@@ -773,6 +787,9 @@ export class Coop {
           break;
         case 'flood':
           g.gimmicks.devices.startFlood(Number(m.i));
+          break;
+        case 'floodReset':
+          g.gimmicks.devices.resetFloods();
           break;
         case 'alarm':
           this.raiseAlarm(Number(m.x), Number(m.y));

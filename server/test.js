@@ -57,6 +57,10 @@ try {
   check('targeted message reaches slot 2', !!(await until(g2.inbox, (m) => m.t === 'hurt')));
   await wait(150);
   check('…and not slot 1', !g.inbox.some((m) => m.t === 'hurt'));
+  // a big world snapshot passes through unparsed to everyone else
+  const big = 'x'.repeat(6000);
+  h.ws.send(JSON.stringify({ t: 'ws', pad: big }));
+  check('big snapshot reaches both guests intact', (await until(g.inbox, (m) => m.t === 'ws')).pad === big && (await until(g2.inbox, (m) => m.t === 'ws')).pad === big);
   g.ws.send(JSON.stringify({ t: 'ping', c: 5 }));
   const pong = await until(g.inbox, (m) => m.t === 'pong');
   check('ping/pong', pong.c === 5 && typeof pong.s === 'number');

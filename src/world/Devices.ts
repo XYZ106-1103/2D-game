@@ -808,6 +808,16 @@ export class Devices {
     if (f) f.rising = true;
   }
 
+  /** Some flood is on its way up. */
+  floodRising(): boolean {
+    return this.floods.some((f) => f.rising);
+  }
+
+  /** Co-op: the rising lethe drains back to the bottom (its trigger re-arms). */
+  resetFloods(): void {
+    for (const f of this.floods) f.reset();
+  }
+
   render(dt: number): void {
     const t = this.time;
     this.ctx.g.clear();

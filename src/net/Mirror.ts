@@ -162,12 +162,38 @@ export class MirrorGuest {
   private scene: Phaser.Scene;
   private map = new Map<number, Shadow>();
   private interval = 50;
+  private lastArrive = 0;
+  /** Recent gaps between packets: [arrival time, gap ms]. */
+  private gaps: [number, number][] = [];
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
   }
 
+  /**
+   * How long a move glides. Over the internet packets come late or bunched;
+   * gliding over the usual worst gap (not the nominal 50 ms) keeps motion
+   * continuous instead of move-stop-move.
+   */
+  get easeMs(): number {
+    return this.interval;
+  }
+
+  private noteArrival(now: number): void {
+    if (this.lastArrive > 0) {
+      this.gaps.push([now, Math.min(600, now - this.lastArrive)]);
+      // the longest wait in the last 1.5 s: bunched packets (several at once,
+      // then a long silence) need the glide to span the silence
+      while (this.gaps.length > 1 && now - this.gaps[0][0] > 1500) this.gaps.shift();
+      let worst = 0;
+      for (const [, gap] of this.gaps) worst = Math.max(worst, gap);
+      this.interval = Math.max(50, Math.min(400, worst * 1.1));
+    }
+    this.lastArrive = now;
+  }
+
   apply(p: MirrorPacket, now: number): void {
+    this.noteArrival(now);
     for (const id of p.d) {
       const sh = this.map.get(id);
       if (sh) sh.obj.destroy();

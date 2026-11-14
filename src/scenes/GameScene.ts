@@ -875,6 +875,12 @@ export class GameScene extends Phaser.Scene implements Juice {
           this.combat.reset();
           this.gimmicks.reset();
           this.boss?.reset();
+        } else if (this.gimmicks.devices.floodRising()) {
+          // co-op keeps the shared world, but rising lethe would still be where
+          // it caught us: it drains and starts over on every screen (nobody
+          // else is sent back, and the level stays the same for everyone)
+          this.gimmicks.devices.resetFloods();
+          this.coop.event({ e: 'floodReset' });
         }
         this.cam.snap(p.x, p.feetY, p.facing);
         this.state = 'play';

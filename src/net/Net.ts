@@ -56,6 +56,11 @@ class NetClient {
   rtt = 0;
   status: 'idle' | 'waking' | 'connecting' | 'open' | 'closed' = 'idle';
 
+  /** Bytes queued on the socket and not yet sent (a slow uplink backs up here). */
+  get buffered(): number {
+    return this.ws ? this.ws.bufferedAmount : 0;
+  }
+
   get active(): boolean {
     return this.status === 'open' && this.role !== null;
   }
