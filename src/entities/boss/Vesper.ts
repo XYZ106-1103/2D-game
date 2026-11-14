@@ -128,9 +128,9 @@ export class Vesper {
       [this.arenaW / 2, 236],
       [this.arenaW - 120, 150],
     ])
-      this.screens.push(mkPart(x, y, 4, 'ch3', 'screen_0', DEPTH.objects + 2, 14));
-    for (const x of [150, this.arenaW / 2, this.arenaW - 150]) this.pylons.push(mkPart(x, this.floorY - 42, 5, 'ch3', 'pylon', DEPTH.objects + 1, 12));
-    for (const side of [-1, 1]) this.eyes.push(mkPart(this.fxX + side * 38, this.fyC - 78 + 58, 6, 'boss3', 'eye_shut', DEPTH.mid + 2, 16));
+      this.screens.push(mkPart(x, y, 5, 'ch3', 'screen_0', DEPTH.objects + 2, 14));
+    for (const x of [150, this.arenaW / 2, this.arenaW - 150]) this.pylons.push(mkPart(x, this.floorY - 42, 6, 'ch3', 'pylon', DEPTH.objects + 1, 12));
+    for (const side of [-1, 1]) this.eyes.push(mkPart(this.fxX + side * 38, this.fyC - 78 + 58, 8, 'boss3', 'eye_shut', DEPTH.mid + 2, 16));
     // all six sit inside the locked boss camera (world y >= 150) and clear of the face
     for (const [tx, ty] of [
       [6, 13],
@@ -168,7 +168,8 @@ export class Vesper {
     return sum(this.screens) + sum(this.pylons) + sum(this.eyes) + this.lanterns.filter((l) => !l.lit).length * 2;
   }
   get maxHp(): number {
-    return 12 + 15 + 12 + 12;
+    // screens 3x5, pylons 3x6, eyes 2x8, lanterns 6x2
+    return 15 + 18 + 16 + 12;
   }
 
   hookTargets(): AnchorPoint[] {

@@ -440,18 +440,20 @@ function avePlate(p: Plot, mask: number): void {
 }
 
 function aveGlass(p: Plot, mask: number): void {
-  // big shop window
+  // striped shop canopy seen from the street: lit top, stripes, scalloped valance
+  const [a, b] = AWN[0];
   each((x, y) => {
-    let c = y < 7 ? SK[3] : SK[2];
-    if ((x + y) % 11 === 0 || (x + y) % 11 === 1) c = SK[5];
-    p(x, y, c, 220);
+    const stripe = Math.floor(x / 4) % 2 ? a : b;
+    if (y < 2) p(x, y, mask & N ? MA[6] : stripe);
+    else if (y < 11) p(x, y, y > 8 ? (stripe === a ? CR[3] : MA[4]) : stripe);
+    else if (y < 14) {
+      const sc = Math.abs((x % 4) - 1.5) + (y - 11) * 0.9 < 2.2;
+      if (sc) p(x, y, stripe === a ? CR[3] : MA[4]);
+    }
   });
-  for (let i = 0; i < T; i++) {
-    if (mask & N) p(i, 0, NI[3]);
-    if (mask & S) p(i, 15, NI[2]);
-    p(0, i, NI[3]);
-    p(15, i, NI[2]);
-  }
+  if (mask & S) for (let x = 0; x < T; x++) if (x % 4 === 1 || x % 4 === 2) p(x, 14, NI[2], 160);
+  if (mask & W) for (let y = 0; y < 13; y++) p(0, y, NI[2]);
+  if (mask & E) for (let y = 0; y < 13; y++) p(15, y, NI[2]);
 }
 
 function aveCatwalk(p: Plot, part: number): void {
@@ -481,14 +483,60 @@ function aveRail(p: Plot, part: number): void {
 }
 
 function aveBackwall(p: Plot, kind: number): void {
-  // plaster wall in shade; a rare poster or tag
-  each((x, y) => p(x, y, (x * 7 + y * 3 + kind) % 31 === 0 ? MA[1] : y % 8 === 7 ? MA[1] : MA[2]));
-  if (kind === 1) {
-    rect(p, 3, 3, 12, 12, MA[4]);
-    rect(p, 4, 4, 11, 7, SK[2]);
-    for (let x = 4; x < 11; x += 2) p(x, 9, NI[1]);
+  // warm brick facade in shade: offset courses, mortar, the odd darker or sun-bleached brick
+  each((x, y) => {
+    const row = y >> 2;
+    const off = row % 2 ? 4 : 0;
+    const bx = (x + off) >> 3;
+    const mortar = y % 4 === 3 || (x + off) % 8 === 7;
+    const h = hash2(bx + kind * 3, row, 343);
+    let c = h > 0.86 ? BR[2] : h < 0.12 ? SU[3] : SU[2];
+    if (y % 4 === 0 && !mortar && h > 0.55) c = h > 0.86 ? BR[3] : SU[3]; // a few bricks catch the light
+    if (mortar) c = SU[0];
+    p(x, y, c);
+  });
+  switch (kind) {
+    case 101: // lit window, a room behind it
+      rect(p, 3, 2, 12, 12, SU[0]);
+      rect(p, 4, 3, 11, 11, AM[1]);
+      rect(p, 4, 3, 11, 5, AM[2]);
+      for (let y = 3; y < 12; y++) p(8, y, SU[0]);
+      p(5, 4, AM[4]);
+      rect(p, 3, 13, 12, 13, SU[4]);
+      break;
+    case 2: // dark window with a sky reflection
+      rect(p, 3, 2, 12, 12, SU[0]);
+      rect(p, 4, 3, 11, 11, NI[2]);
+      for (let i = 0; i < 4; i++) p(5 + i, 7 - i, SK[2]);
+      for (let y = 3; y < 12; y++) p(8, y, SU[0]);
+      rect(p, 3, 13, 12, 13, SU[4]);
+      break;
+    case 3: // vote poster, sun-faded
+      rect(p, 3, 3, 12, 13, SU[5]);
+      rect(p, 4, 4, 11, 7, CR[3]);
+      for (let x = 4; x < 11; x += 2) p(x, 9, SU[1]);
+      for (let x = 4; x < 9; x += 2) p(x, 11, SU[1]);
+      p(12, 3, SU[3]);
+      break;
+    case 104: // air-conditioner unit
+      rect(p, 2, 6, 13, 13, ST[4]);
+      rect(p, 2, 6, 13, 6, ST[5]);
+      for (let y = 8; y < 13; y += 2) rect(p, 3, y, 9, y, ST[2]);
+      circle(p, 11.5, 10.5, 1.8, ST[2]);
+      rect(p, 2, 14, 13, 14, SU[0]);
+      break;
+    case 105: // little shop sign
+      rect(p, 2, 4, 13, 10, NI[1]);
+      for (let x = 4; x < 12; x++) if (hash2(x, 1, 344) > 0.35) p(x, 7, x < 8 ? MG[5] : CY[5]);
+      rect(p, 7, 0, 8, 3, ST[2]);
+      break;
+    case 106: // vent grille
+      rect(p, 4, 5, 11, 11, ST[2]);
+      for (let y = 6; y < 11; y += 2) rect(p, 5, y, 10, y, ST[4]);
+      break;
+    default:
+      break;
   }
-  if (kind === 9) for (let x = 1; x < 15; x++) p(x, 6 + Math.round(Math.sin(x) * 1.5), MG[4]);
 }
 
 function aveCrumble(p: Plot, frame: number): void {
@@ -602,9 +650,55 @@ function trRail(p: Plot, part: number): void {
 }
 
 function trBackwall(p: Plot, kind: number): void {
-  // white subway tiles with a line-colour band at a fixed height
-  each((x, y) => p(x, y, x % 4 === 0 || y % 4 === 0 ? MA[2] : MA[3]));
-  if (kind === 13) rect(p, 3, 3, 12, 7, NI[1]);
+  // glazed teal tiles in shade with a faint sheen; equipment fixed to the wall
+  each((x, y) => {
+    const grout = x % 4 === 0 || y % 4 === 0;
+    const h = hash2((x >> 2) + kind * 5, y >> 2, 353);
+    let c = grout ? TL[2] : h > 0.8 ? TL[5] : TL[4];
+    if (!grout && x % 4 === 1 && y % 4 === 1) c = TL[6]; // glaze glint
+    p(x, y, c);
+  });
+  switch (kind) {
+    case 101: // route map
+      rect(p, 2, 3, 13, 12, MA[5]);
+      for (let x = 3; x < 13; x++) p(x, 6, CR[4]);
+      for (let x = 3; x < 13; x++) p(x, 9, SK[3]);
+      for (const x of [4, 8, 11]) {
+        p(x, 6, MA[6]);
+        p(x, 9, MA[6]);
+      }
+      break;
+    case 2: // departure board
+      rect(p, 2, 4, 13, 11, NI[1]);
+      for (let y = 5; y < 11; y += 2) for (let x = 3; x < 13; x++) if (hash2(x, y, 354) > 0.4) p(x, y, AM[4]);
+      break;
+    case 3: // control panel with status lamps
+      rect(p, 2, 5, 13, 13, ST[2]);
+      rect(p, 2, 5, 13, 5, ST[4]);
+      for (let x = 4; x < 13; x += 3) p(x, 8, hash2(x, 2, 355) > 0.5 ? AC[4] : CR[5]);
+      for (let x = 4; x < 12; x++) p(x, 11, x % 2 ? ST[5] : ST[3]);
+      break;
+    case 104: // wall lamp
+      rect(p, 6, 3, 9, 4, ST[3]);
+      rect(p, 5, 5, 10, 8, AM[4]);
+      rect(p, 6, 5, 9, 5, AM[5]);
+      rect(p, 5, 9, 10, 9, ST[2]);
+      break;
+    case 105: // direction sign
+      rect(p, 2, 5, 13, 10, SK[1]);
+      for (let i = 0; i < 3; i++) {
+        p(9 + i, 7 - i, MA[6]);
+        p(9 + i, 8 + i, MA[6]);
+      }
+      rect(p, 4, 7, 11, 8, MA[6]);
+      break;
+    case 106: // vent
+      rect(p, 3, 4, 12, 11, TL[1]);
+      for (let y = 5; y < 11; y += 2) rect(p, 4, y, 11, y, TL[3]);
+      break;
+    default:
+      break;
+  }
 }
 
 function trCrumble(p: Plot, frame: number): void {
@@ -626,22 +720,23 @@ export const TRANSIT_KIT: TileKit = { solid: trSolid, interior: trInterior, plat
 // =============================================================================
 
 function labSolid(p: Plot, mask: number, v: number): void {
+  // matte panels: bright enough to read as "clean", dim enough not to bloom
   each((x, y) => {
-    let c = MA[4];
-    if (x === 0 || y === 0) c = MA[5];
-    if (x === 15 || y === 15) c = MA[2];
-    if (y === 10 && v === 1) c = AM[3];
-    if (y === 11 && v === 1) c = SK[3];
+    let c = MA[2];
+    if (x === 0 || y === 0) c = MA[3];
+    if (x === 15 || y === 15) c = MA[1];
+    if (y === 10 && v === 1) c = AM[2];
+    if (y === 11 && v === 1) c = SK[2];
     p(x, y, c);
   });
   p(2, 2, MA[3]);
   p(13, 2, MA[3]);
   if (mask & N) for (let x = 0; x < T; x++) {
-    p(x, 0, 0xffffff);
-    p(x, 1, MA[6]);
-    p(x, 2, SK[4]);
+    p(x, 0, MA[5]);
+    p(x, 1, MA[3]);
+    p(x, 2, SK[3]);
   }
-  edges(p, mask, MA[6], MA[2], MA[1], mask & N ? 3 : 0);
+  edges(p, mask, MA[3], MA[1], MA[0], mask & N ? 3 : 0);
   roundCorners(p, mask);
 }
 
@@ -687,9 +782,9 @@ function labInterior(p: Plot, k: number): void {
 }
 
 function labPlate(p: Plot, mask: number): void {
-  each((x, y) => p(x, y, (Math.floor(x / 8) + Math.floor(y / 8)) % 2 ? MA[4] : MA[3]));
+  each((x, y) => p(x, y, (Math.floor(x / 8) + Math.floor(y / 8)) % 2 ? MA[3] : MA[2]));
   if (mask & N) for (let x = 0; x < T; x++) {
-    p(x, 0, MA[6]);
+    p(x, 0, MA[5]);
     p(x, 1, AM[3]);
   }
   roundCorners(p, mask);
@@ -707,12 +802,12 @@ function labGlass(p: Plot, mask: number): void {
 
 function labCatwalk(p: Plot, part: number): void {
   for (let x = 0; x < T; x++) {
-    p(x, 0, MA[6]);
-    p(x, 1, x % 4 === 0 ? SK[5] : MA[4]);
-    p(x, 2, MA[3]);
-    p(x, 3, MA[2]);
+    p(x, 0, MA[5]);
+    p(x, 1, x % 4 === 0 ? SK[4] : MA[3]);
+    p(x, 2, MA[2]);
+    p(x, 3, MA[1]);
   }
-  struts(p, part, MA[3], MA[2]);
+  struts(p, part, MA[2], MA[1]);
 }
 
 function labRail(p: Plot, part: number): void {
@@ -728,12 +823,52 @@ function labRail(p: Plot, part: number): void {
 }
 
 function labBackwall(p: Plot, kind: number): void {
-  each((x, y) => p(x, y, x % 8 === 0 || y % 8 === 0 ? MA[1] : MA[2]));
-  if (kind === 1) {
-    rect(p, 4, 4, 11, 11, NI[2]);
-    p(6, 6, AC[4]);
+  // blue-grey wall panels in the lab's shade, seams and rivets; fixtures on a few
+  each((x, y) => {
+    const seam = x % 8 === 0 || y % 8 === 0;
+    const h = hash2((x >> 3) + kind * 7, y >> 3, 363);
+    let c = seam ? ST[2] : h > 0.78 ? ST[4] : ST[3];
+    if (!seam && (x % 8 === 1 || y % 8 === 1)) c = h > 0.78 ? ST[5] : ST[4]; // lit panel edge
+    p(x, y, c);
+  });
+  for (const [x, y] of [
+    [2, 2],
+    [10, 2],
+    [2, 10],
+    [10, 10],
+  ])
+    p(x, y, ST[5]);
+  switch (kind) {
+    case 1: // monitor with a waveform
+      rect(p, 2, 3, 13, 11, NI[1]);
+      for (let x = 3; x < 13; x++) p(x, 7 + Math.round(Math.sin(x * 0.9) * 2), CY[5]);
+      rect(p, 7, 12, 8, 13, ST[2]);
+      break;
+    case 102: // hazard sign
+      rect(p, 4, 4, 11, 11, AM[3]);
+      rect(p, 7, 5, 8, 8, NI[1]);
+      p(7, 10, NI[1]);
+      p(8, 10, NI[1]);
+      break;
+    case 103: // wall clock
+      circle(p, 8, 8, 5, MA[4]);
+      circle(p, 8, 8, 5, ST[1], true);
+      for (let i = 0; i < 3; i++) p(8, 8 - i, NI[1]);
+      for (let i = 0; i < 3; i++) p(8 + i, 8, NI[1]);
+      break;
+    case 4: // cable junction box
+      rect(p, 4, 4, 11, 12, ST[2]);
+      rect(p, 5, 5, 10, 6, AM[2]);
+      p(6, 9, AC[4]);
+      p(9, 9, CR[5]);
+      break;
+    case 105: // air vent
+      rect(p, 3, 5, 12, 11, ST[1]);
+      for (let y = 6; y < 11; y += 2) rect(p, 4, y, 11, y, ST[3]);
+      break;
+    default:
+      break;
   }
-  if (kind === 10) for (let x = 0; x < T; x++) p(x, 12, AM[2]);
 }
 
 function labCrumble(p: Plot, frame: number): void {

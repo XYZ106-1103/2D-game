@@ -72,11 +72,12 @@ export class HudScene extends Phaser.Scene {
     this.timer = text(this, GAME_W - 46, 6, '00:00', 'galmuri7', COLORS.uiDim);
 
     // --- dialogue box --------------------------------------------------------------
+    // tall enough for two wrapped lines (most long lines wrap once)
     const dw = 292;
     const dx = Math.round((GAME_W - dw) / 2);
-    const dy = GAME_H - 42;
+    const dy = GAME_H - 54;
     this.dlgBox = this.add.container(0, 0);
-    this.dlgBox.add(panel(this, dx, dy, dw, 36));
+    this.dlgBox.add(panel(this, dx, dy, dw, 48));
     this.dlgName = text(this, dx + 10, dy + 4, 'MOTH', 'galmuri7', COLORS.cyan);
     this.dlgText = text(this, dx + 10, dy + 15, '', 'galmuri9', COLORS.uiText);
     this.dlgBox.add([this.dlgName, this.dlgText]);
@@ -107,7 +108,9 @@ export class HudScene extends Phaser.Scene {
     const t2 = text(this, 0, 110, this.game_.level.data.subtitle, 'galmuri7', COLORS.cyan);
     t2.x = Math.round((GAME_W - t2.width) / 2);
     const line = this.add.rectangle(GAME_W / 2, 106, 0, 1, COLORS.cyan).setOrigin(0.5, 0.5);
-    this.stageCard.add([line, t1, t2]);
+    // a soft dark band keeps the title readable over bright daylight stages
+    const band = this.add.rectangle(GAME_W / 2, 104, Math.max(t1.width, t2.width, 200) + 48, 38, 0x05030a, 0.55).setOrigin(0.5, 0.5);
+    this.stageCard.add([line, band, t1, t2]);
     this.cardT = this.game_.level.data.boss ? 99 : 0;
 
     this.comboNum = text(this, 0, 78, '', 'galmuri11b', COLORS.cyan).setVisible(false);
@@ -311,14 +314,15 @@ export class HudScene extends Phaser.Scene {
     if (!entry) return;
     this.logBox?.destroy();
     const w = 320;
-    const h = 30 + entry.body.length * 14 + 16;
+    const body = entry.body.flatMap((b) => wrap(this, 'galmuri9', b, w - 30).split('\n'));
+    const h = 30 + body.length * 14 + 16;
     const x = Math.round((GAME_W - w) / 2);
     const y = 40;
     const c = this.add.container(0, 0);
     c.add(panel(this, x, y, w, h, 'panel_mg'));
     c.add(this.add.image(x + 10, y + 9, 'ui', 'icon_log').setOrigin(0, 0));
     c.add(text(this, x + 24, y + 8, `${UI_TEXT.logPickup} · ${entry.title}`, 'galmuri9', COLORS.magenta));
-    entry.body.forEach((b, i) => c.add(text(this, x + 14, y + 28 + i * 14, b, 'galmuri9', COLORS.uiText)));
+    body.forEach((b, i) => c.add(text(this, x + 14, y + 28 + i * 14, b, 'galmuri9', COLORS.uiText)));
     const hint = text(this, 0, y + h - 13, UI_TEXT.continuePrompt, 'galmuri7', COLORS.uiDim);
     hint.x = x + w - hint.width - 8;
     c.add(hint);

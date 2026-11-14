@@ -16,8 +16,8 @@ export function buildAvenue(): LevelData {
 
   // B. first light: the awnings cast shade; cross the gap when the beam swings away
   L.light(46, 14, 35, 145, 5, 260, 26, 0);
-  L.fill(33, 21, 45, 21, Mat.Steel);
-  L.fill(48, 21, 60, 21, Mat.Steel);
+  L.fill(33, 21, 45, 21, Mat.Glass); // canopy: casts shade
+  L.fill(48, 21, 60, 21, Mat.Glass); // canopy: casts shade
   L.fill(39, 27, 39, 27, Mat.Concrete);
   L.fill(55, 27, 55, 27, Mat.Concrete);
   L.fill(65, 0, 67, 21, Mat.Concrete);
@@ -39,9 +39,9 @@ export function buildAvenue(): LevelData {
   L.trigger(112, 16, 4, 12, 'v_serin');
   L.light(124, 14, 35, 145, 4.2, 260, 26, 0);
   L.light(140, 14, 35, 145, 4.2, 260, 26, 0.5);
-  L.fill(115, 21, 122, 21, Mat.Steel);
-  L.fill(126, 21, 138, 21, Mat.Steel);
-  L.fill(142, 21, 150, 21, Mat.Steel);
+  L.fill(115, 21, 122, 21, Mat.Glass); // canopy: casts shade
+  L.fill(126, 21, 138, 21, Mat.Glass); // canopy: casts shade
+  L.fill(142, 21, 150, 21, Mat.Glass); // canopy: casts shade
   L.fill(119, 27, 119, 27, Mat.Concrete);
   L.fill(146, 27, 146, 27, Mat.Concrete);
   L.enemy('watcher', 132, 24);
